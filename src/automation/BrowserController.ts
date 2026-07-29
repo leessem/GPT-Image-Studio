@@ -1,38 +1,48 @@
+import { BrowserHandle } from "../components/Browser/Browser";
+
 export default class BrowserController {
 
     constructor(
-        private webview: Electron.WebviewTag
+        private browser: BrowserHandle
     ) {}
 
-    async execute(script: string) {
+    async execute<T = any>(script: string): Promise<T> {
 
-        return this.webview.executeJavaScript(script);
-
-    }
-
-    reload() {
-
-        this.webview.reload();
+        return await this.browser.execute(script);
 
     }
 
-    back() {
+    reload(): void {
 
-        if (this.webview.canGoBack())
-            this.webview.goBack();
-
-    }
-
-    forward() {
-
-        if (this.webview.canGoForward())
-            this.webview.goForward();
+        this.browser.reload();
 
     }
 
-    url() {
+    back(): void {
 
-        return this.webview.getURL();
+        this.browser.goBack();
+
+    }
+
+    forward(): void {
+
+        this.browser.goForward();
+
+    }
+
+    async url(): Promise<string> {
+
+        return await this.execute(`
+            location.href;
+        `);
+
+    }
+
+    async title(): Promise<string> {
+
+        return await this.execute(`
+            document.title;
+        `);
 
     }
 

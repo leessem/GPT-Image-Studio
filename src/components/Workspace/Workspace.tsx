@@ -6,7 +6,7 @@ import Toolbar from "../Toolbar/Toolbar";
 import ImageDrop from "../ImageDrop/ImageDrop";
 import JobTabs from "./JobTabs";
 
-import { buildPromptScript } from "../../browser/ChatGPT";
+import { buildPromptScript } from "../Browser/ChatGPT";
 
 import "./Workspace.css";
 
@@ -14,27 +14,34 @@ export default function Workspace() {
 
     const browserRef = useRef<BrowserHandle>(null);
 
-const handlePromptClick = async () => {
+    const handlePromptClick = async (prompt: string) => {
 
-    const result = await browserRef.current?.execute(`
-        ({
-            url: location.href,
-            title: document.title,
-            buttons: document.querySelectorAll("button").length
-        })
-    `);
+        if (!browserRef.current)
+            return;
 
-    alert(JSON.stringify(result, null, 2));
+        try {
 
-};
+            const script = buildPromptScript(prompt);
+
+            const result = await browserRef.current.execute(script);
+
+            console.log(result);
+
+        } catch (err) {
+
+            console.error(err);
+
+        }
+
+    };
 
     return (
 
         <div className="workspace">
 
-            <Toolbar/>
+            <Toolbar />
 
-            <JobTabs/>
+            <JobTabs />
 
             <div className="workspace-body">
 
@@ -46,7 +53,7 @@ const handlePromptClick = async () => {
                     ref={browserRef}
                 />
 
-                <ImageDrop/>
+                <ImageDrop />
 
             </div>
 
