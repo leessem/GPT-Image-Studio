@@ -1,13 +1,21 @@
+export type JobStatus =
+    | "waiting"
+    | "running"
+    | "done"
+    | "error";
+
 export interface Job {
 
-    id:number;
+    id: string;
 
-    title:string;
+    prompt: string;
 
-    prompt:string;
+    status: JobStatus;
 
-    images:string[];
+    imagePath?: string;
 
-    status:"idle"|"running"|"completed";
+    createdAt: string;
+
+    completedAt?: string;
 
 }

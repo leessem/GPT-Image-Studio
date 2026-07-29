@@ -1,32 +1,36 @@
 import "./Prompt.css";
 
-interface PromptProps{
+import { Job } from "../types/Job";
 
-    onSelect:(prompt:string)=>void;
+interface PromptProps {
+
+    jobs: Job[];
+
+    onStart: () => void;
+
+    onAdd: () => void;
+
+    onDelete: (id: string) => void;
+
+    onEdit: (id: string, prompt: string) => void;
 
 }
 
-const prompts=[
-
-    "Ultra realistic portrait, 8k, masterpiece",
-
-    "Anime style, best quality, masterpiece",
-
-    "Cinematic photography, dramatic lighting",
-
-    "Fantasy landscape, ultra detailed",
-
-    "Luxury product photo, studio lighting"
-
-];
-
 export default function Prompt({
 
-    onSelect
+    jobs,
 
-}:PromptProps){
+    onStart,
 
-    return(
+    onAdd,
+
+    onDelete,
+
+    onEdit
+
+}: PromptProps) {
+
+    return (
 
         <div className="prompt-panel">
 
@@ -48,23 +52,78 @@ export default function Prompt({
 
             <div className="prompt-list">
 
-                {prompts.map((prompt,index)=>(
+                {jobs.map(job => (
 
                     <div
-
-                        key={index}
-
-                        className="prompt-item"
-
-                        onClick={()=>onSelect(prompt)}
-
+                        key={job.id}
+                        className={`prompt-item ${job.status}`}
                     >
 
-                        {prompt}
+                        <span>
+
+                            {job.status === "waiting" && "○"}
+
+                            {job.status === "running" && "▶"}
+
+                            {job.status === "done" && "✔"}
+
+                            {job.status === "error" && "✖"}
+
+                        </span>
+
+                        <input
+
+                            className="prompt-text"
+
+                            value={job.prompt}
+
+                            onChange={e =>
+                                onEdit(
+                                    job.id,
+                                    e.target.value
+                                )
+                            }
+
+                        />
+
+                        <button
+
+                            className="prompt-delete"
+
+                            onClick={() =>
+                                onDelete(job.id)
+                            }
+
+                        >
+
+                            ✕
+
+                        </button>
 
                     </div>
 
                 ))}
+
+            </div>
+
+            <div
+                style={{
+                    display: "flex",
+                    gap: 8
+                }}
+            >
+
+                <button
+                    onClick={onAdd}
+                >
+                    Add
+                </button>
+
+                <button
+                    onClick={onStart}
+                >
+                    Start Queue
+                </button>
 
             </div>
 
