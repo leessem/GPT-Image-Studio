@@ -1,65 +1,33 @@
-import BrowserController from "./BrowserController";
+import { BrowserHandle } from "../components/Browser/Browser";
 
-export interface DomInfo {
-
-    url: string;
-
-    title: string;
-
-    textareas: number;
-
-    contentEditable: number;
-
-    buttons: string[];
-
+export interface DOMSnapshot {
+  url: string;
+  title: string;
+  textareas: number;
+  contentEditables: number;
+  buttons: Array<{
+    text: string;
+    ariaLabel: string | null;
+    testId: string | null;
+    disabled: boolean;
+  }>;
 }
 
-export default class DOMInspector {
-
-    constructor(
-        private browser: BrowserController
-    ) {}
-
-    async inspect(): Promise<DomInfo> {
-
-        return this.browser.execute(`
-
-(() => {
-
-    const buttons = [];
-
-    document.querySelectorAll("button").forEach(btn=>{
-
-        buttons.push({
-
-            text:btn.innerText,
-
-            aria:btn.getAttribute("aria-label"),
-
-            testid:btn.getAttribute("data-testid")
-
-        });
-
-    });
-
-    return {
-
-        url:location.href,
-
-        title:document.title,
-
-        textareas:document.querySelectorAll("textarea").length,
-
-        contentEditable:document.querySelectorAll('[contenteditable="true"]').length,
-
-        buttons
-
-    };
-
-})();
-
-`);
-
-    }
-
+export async function inspectDOM(browser: BrowserHandle): Promise<DOMSnapshot> {
+  return browser.execute(`
+    (() => {
+      return {
+        url: location.href,
+        title: document.title,
+        textareas: document.querySelectorAll("textarea").length,
+        contentEditables: document.querySelectorAll('[contenteditable="true"]').length,
+        buttons: [...document.querySelectorAll("button")].map(btn => ({
+          text: btn.innerText,
+          ariaLabel: btn.getAttribute("aria-label"),
+          testId: btn.getAttribute("data-testid"),
+          disabled: btn.disabled
+        }))
+      };
+    })();
+  `);
 }

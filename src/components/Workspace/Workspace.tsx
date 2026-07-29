@@ -14,13 +14,19 @@ export default function Workspace() {
 
     const browserRef = useRef<BrowserHandle>(null);
 
-    const handlePromptClick = async (prompt: string) => {
+const handlePromptClick = async () => {
 
-        await browserRef.current?.execute(
-            buildPromptScript(prompt)
-        );
+    const result = await browserRef.current?.execute(`
+        ({
+            url: location.href,
+            title: document.title,
+            buttons: document.querySelectorAll("button").length
+        })
+    `);
 
-    };
+    alert(JSON.stringify(result, null, 2));
+
+};
 
     return (
 
