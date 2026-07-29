@@ -1,0 +1,95 @@
+.image-panel{
+
+    display:flex;
+    flex-direction:column;
+
+    background:#252525;
+
+}
+
+.image-header{
+
+    height:45px;
+
+    display:flex;
+    align-items:center;
+
+    padding:0 15px;
+
+    background:#2d2d2d;
+
+    color:white;
+
+    border-bottom:1px solid #3b3b3b;
+
+}
+
+.drop-zone{
+
+    flex:1;
+
+    display:flex;
+    flex-direction:column;
+
+    align-items:center;
+    justify-content:center;
+
+    color:#888;
+
+    border:2px dashed #555;
+
+    margin:15px;
+
+    border-radius:10px;
+
+}
+
+.drop-icon{
+
+    font-size:60px;
+
+    margin-bottom:15px;
+
+}
+
+.drop-zone h2{
+
+    color:white;
+
+    margin-bottom:10px;
+
+}
+
+.image-footer{
+
+    display:flex;
+
+    gap:10px;
+
+    padding:15px;
+
+}
+
+.image-footer button{
+
+    flex:1;
+
+    height:38px;
+
+    border:none;
+
+    border-radius:5px;
+
+    background:#444;
+
+    color:white;
+
+    cursor:pointer;
+
+}
+
+.image-footer button:hover{
+
+    background:#5b5b5b;
+
+}

@@ -1,0 +1,21 @@
+.job-tabs {
+    height: 42px;
+    background: #202020;
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid #303030;
+}
+
+.job {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    color: white;
+    cursor: pointer;
+    border-right: 1px solid #333;
+}
+
+.job.active {
+    background: #3d6df2;
+}

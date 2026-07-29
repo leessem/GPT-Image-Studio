@@ -1,0 +1,49 @@
+.toolbar{
+    height:60px;
+    background:#161616;
+    border-bottom:1px solid #303030;
+
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+
+    padding:0 20px;
+}
+
+.toolbar-title{
+
+    color:white;
+    font-size:20px;
+    font-weight:700;
+
+}
+
+.toolbar-buttons{
+
+    display:flex;
+    gap:10px;
+
+}
+
+.toolbar-buttons button{
+
+    width:110px;
+    height:38px;
+
+    border:none;
+    border-radius:6px;
+
+    background:#3d6df2;
+    color:white;
+
+    cursor:pointer;
+
+    transition:.2s;
+
+}
+
+.toolbar-buttons button:hover{
+
+    background:#5783ff;
+
+}
