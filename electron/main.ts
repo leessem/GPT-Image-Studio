@@ -2,6 +2,7 @@ import { app, BrowserWindow, session } from "electron";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import fs from "node:fs";
 
 const require = createRequire(import.meta.url);
 
@@ -10,9 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path.join(__dirname, "..");
 
 export const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
-
 export const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
-
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
@@ -61,6 +60,8 @@ function createWindow() {
 
   }
 
+  win.webContents.openDevTools();
+
   win.webContents.setWindowOpenHandler(() => {
 
     return {
@@ -76,6 +77,29 @@ app.whenReady().then(() => {
   session.defaultSession.setUserAgent(
     session.defaultSession.getUserAgent()
   );
+
+  const downloadDir = path.join(app.getPath("downloads"), "GPT Image Studio");
+
+  if (!fs.existsSync(downloadDir)) {
+    fs.mkdirSync(downloadDir, { recursive: true });
+  }
+
+  session.defaultSession.on("will-download", (event, item) => {
+
+    const fileName =
+      Date.now() + path.extname(item.getFilename());
+
+    item.setSavePath(
+      path.join(downloadDir, fileName)
+    );
+
+    item.on("done", (_, state) => {
+
+      console.log("Download:", state);
+
+    });
+
+  });
 
   createWindow();
 

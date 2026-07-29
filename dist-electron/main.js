@@ -2,6 +2,7 @@ import { app, session, BrowserWindow } from "electron";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import fs from "node:fs";
 createRequire(import.meta.url);
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path.join(__dirname$1, "..");
@@ -31,6 +32,7 @@ function createWindow() {
   } else {
     win.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
+  win.webContents.openDevTools();
   win.webContents.setWindowOpenHandler(() => {
     return {
       action: "deny"
@@ -41,6 +43,19 @@ app.whenReady().then(() => {
   session.defaultSession.setUserAgent(
     session.defaultSession.getUserAgent()
   );
+  const downloadDir = path.join(app.getPath("downloads"), "GPT Image Studio");
+  if (!fs.existsSync(downloadDir)) {
+    fs.mkdirSync(downloadDir, { recursive: true });
+  }
+  session.defaultSession.on("will-download", (event, item) => {
+    const fileName = Date.now() + path.extname(item.getFilename());
+    item.setSavePath(
+      path.join(downloadDir, fileName)
+    );
+    item.on("done", (_, state) => {
+      console.log("Download:", state);
+    });
+  });
   createWindow();
 });
 app.on("activate", () => {

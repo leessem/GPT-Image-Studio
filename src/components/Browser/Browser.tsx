@@ -1,4 +1,9 @@
-import { forwardRef, useImperativeHandle, useRef } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+} from "react";
 import "./Browser.css";
 
 export interface BrowserHandle {
@@ -33,6 +38,22 @@ const Browser = forwardRef<BrowserHandle>((_, ref) => {
       }
     },
   }));
+
+  useEffect(() => {
+    const webview = webviewRef.current;
+
+    if (!webview) return;
+
+    const handleDomReady = () => {
+      webview.openDevTools();
+    };
+
+    webview.addEventListener("dom-ready", handleDomReady);
+
+    return () => {
+      webview.removeEventListener("dom-ready", handleDomReady);
+    };
+  }, []);
 
   return (
     <div className="browser">

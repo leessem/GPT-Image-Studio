@@ -1,109 +1,161 @@
 export function buildPromptScript(prompt: string) {
-    return `
+  return `
 (() => {
 
-    const text = ${JSON.stringify(prompt)};
+  const text = ${JSON.stringify(prompt)};
 
-    const textarea = document.querySelector("textarea");
+  const editor = document.querySelector("#prompt-textarea");
 
-    if (!textarea) {
-        return {
-            success: false,
-            reason: "textarea not found"
-        };
-    }
+  if (!editor) {
+    return {
+      success: false,
+      reason: "prompt-textarea not found"
+    };
+  }
 
-    textarea.focus();
+  editor.focus();
 
-    const setter =
-        Object.getOwnPropertyDescriptor(
-            HTMLTextAreaElement.prototype,
-            "value"
-        )?.set;
+  const selection = window.getSelection();
 
-    if (setter) {
-        setter.call(textarea, text);
-    } else {
-        textarea.value = text;
-    }
+  if (!selection) {
+    return {
+      success: false,
+      reason: "selection not found"
+    };
+  }
 
-    textarea.dispatchEvent(
-        new Event("input", {
-            bubbles: true
-        })
-    );
+  selection.removeAllRanges();
 
-    textarea.dispatchEvent(
-        new Event("change", {
-            bubbles: true
-        })
-    );
+  const range = document.createRange();
 
-    textarea.dispatchEvent(
-        new KeyboardEvent("keydown", {
-            key: "Enter",
-            code: "Enter",
-            bubbles: true
-        })
-    );
+  range.selectNodeContents(editor);
 
-    const sendButton =
-        [...document.querySelectorAll("button")].find(btn => {
+  range.collapse(true);
 
-            if (
-                btn.disabled ||
-                btn.getAttribute("aria-disabled") === "true"
-            ) {
-                return false;
-            }
+  selection.addRange(range);
 
-            const aria =
-                (btn.getAttribute("aria-label") || "").toLowerCase();
+  editor.innerHTML = "";
 
-            const testid =
-                (btn.getAttribute("data-testid") || "").toLowerCase();
+  const p = document.createElement("p");
 
-            return (
-                aria.includes("send") ||
-                aria.includes("전송") ||
-                testid.includes("send")
-            );
+  p.textContent = text;
 
+  editor.appendChild(p);
+
+  editor.dispatchEvent(new InputEvent("beforeinput", {
+    bubbles: true,
+    cancelable: true,
+    inputType: "insertText",
+    data: text
+  }));
+
+  editor.dispatchEvent(new InputEvent("input", {
+    bubbles: true,
+    inputType: "insertText",
+    data: text
+  }));
+
+  const sendButton = document.querySelector("#composer-submit-button");
+
+  if (!sendButton) {
+    return {
+      success: false,
+      reason: "send button not found"
+    };
+  }
+
+  sendButton.click();
+
+  return {
+    success: true
+  };
+
+})();
+`;
+}
+
+export function buildWaitImageScript() {
+  return `
+(() => {
+
+  return new Promise((resolve) => {
+
+    const selector = 'img[src*="/backend-api/estuary/content"]';
+
+    const startCount = document.querySelectorAll(selector).length;
+
+    const check = () => {
+
+      const images = Array.from(document.querySelectorAll(selector));
+
+      if (images.length > startCount) {
+
+        const image = images[images.length - 1];
+
+        resolve({
+          success: true,
+          src: image.src
         });
 
-    if (sendButton) {
-        sendButton.click();
+        return;
+      }
 
-        return {
-            success: true,
-            method: "button"
-        };
+      setTimeout(check, 1000);
+
+    };
+
+    check();
+
+  });
+
+})();
+`;
+}
+
+export function buildReadImageScript(imageUrl: string) {
+  return `
+(async () => {
+
+  try {
+
+    const response = await fetch(${JSON.stringify(imageUrl)}, {
+      credentials: "include"
+    });
+
+    if (!response.ok) {
+      return {
+        success: false,
+        reason: "fetch failed : " + response.status
+      };
     }
 
-    textarea.dispatchEvent(
-        new KeyboardEvent("keydown", {
-            key: "Enter",
-            code: "Enter",
-            keyCode: 13,
-            which: 13,
-            bubbles: true
-        })
-    );
+    const blob = await response.blob();
 
-    textarea.dispatchEvent(
-        new KeyboardEvent("keyup", {
-            key: "Enter",
-            code: "Enter",
-            keyCode: 13,
-            which: 13,
-            bubbles: true
-        })
-    );
+    const base64 = await new Promise((resolve, reject) => {
+
+      const reader = new FileReader();
+
+      reader.onload = () => resolve(reader.result);
+
+      reader.onerror = reject;
+
+      reader.readAsDataURL(blob);
+
+    });
 
     return {
-        success: true,
-        method: "enter"
+      success: true,
+      data: base64
     };
+
+  } catch (e) {
+
+    return {
+      success: false,
+      reason: String(e)
+    };
+
+  }
 
 })();
 `;
