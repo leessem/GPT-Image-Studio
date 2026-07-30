@@ -1,6 +1,10 @@
+// ============================================================================
+// File : src/components/Prompt/Prompt.tsx
+// ============================================================================
+
 import "./Prompt.css";
 
-import { Job } from "../types/Job";
+import { Job } from "../../types/Job";
 
 interface PromptProps {
 
@@ -55,8 +59,11 @@ export default function Prompt({
                 {jobs.map(job => (
 
                     <div
+
                         key={job.id}
+
                         className={`prompt-item ${job.status}`}
+
                     >
 
                         <span>
@@ -78,10 +85,15 @@ export default function Prompt({
                             value={job.prompt}
 
                             onChange={e =>
+
                                 onEdit(
+
                                     job.id,
+
                                     e.target.value
+
                                 )
+
                             }
 
                         />
@@ -91,7 +103,9 @@ export default function Prompt({
                             className="prompt-delete"
 
                             onClick={() =>
+
                                 onDelete(job.id)
+
                             }
 
                         >
@@ -107,22 +121,35 @@ export default function Prompt({
             </div>
 
             <div
+
                 style={{
+
                     display: "flex",
-                    gap: 8
+
+                    gap: 8,
+
                 }}
+
             >
 
                 <button
+
                     onClick={onAdd}
+
                 >
+
                     Add
+
                 </button>
 
                 <button
+
                     onClick={onStart}
+
                 >
+
                     Start Queue
+
                 </button>
 
             </div>
@@ -132,3 +159,7 @@ export default function Prompt({
     );
 
 }
+
+// ============================================================================
+// End of File
+// ============================================================================

@@ -1,15 +1,15 @@
-import { Job } from "../types/Job";
+import { Project } from "../types/Project";
 
 const STORAGE_KEY = "gpt-image-studio-project";
 
 /**
  * 프로젝트 저장
  */
-export function saveProject(jobs: Job[]) {
+export function saveProject(project: Project) {
 
     localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify(jobs)
+        JSON.stringify(project)
     );
 
 }
@@ -17,21 +17,23 @@ export function saveProject(jobs: Job[]) {
 /**
  * 프로젝트 불러오기
  */
-export function loadProject(defaultJobs: Job[]): Job[] {
+export function loadProject(defaultProject: Project): Project {
 
     const saved = localStorage.getItem(STORAGE_KEY);
 
     if (!saved)
-        return defaultJobs;
+        return defaultProject;
 
     try {
 
-        return JSON.parse(saved);
+        const project = JSON.parse(saved) as Project;
+
+        return project;
 
     }
     catch {
 
-        return defaultJobs;
+        return defaultProject;
 
     }
 
