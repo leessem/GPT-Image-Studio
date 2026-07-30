@@ -1,3 +1,14 @@
+// ============================================================================
+// File : src/components/Workspace/Workspace.tsx
+// PART 1 / 2
+//
+// 역할
+// - Import
+// - State
+// - Queue
+// - Event
+// ============================================================================
+
 import { useEffect, useRef, useState } from "react";
 
 import Browser, { BrowserHandle } from "../Browser/Browser";
@@ -6,86 +17,62 @@ import Toolbar from "../Toolbar/Toolbar";
 import ImageDrop from "../ImageDrop/ImageDrop";
 import JobTabs from "./JobTabs";
 
-import { Job } from "../types/Job";
+import { Job } from "../../types/Job";
+
+import { defaultJobs } from "../data/defaultJobs";
+
+import { runQueue } from "../Queue/QueueRunner";
 
 import {
-    buildPromptScript,
-    buildWaitImageScript,
-} from "../Browser/ChatGPT";
+    loadProject,
+    saveProject,
+} from "../../utils/ProjectStorage";
+
+import {
+    addJob,
+    deleteJob,
+    editJob,
+} from "../../services/JobService";
 
 import "./Workspace.css";
 
-const STORAGE_KEY = "gpt-image-studio-project";
-
-const defaultJobs: Job[] = [
-    {
-        id: crypto.randomUUID(),
-        prompt: "Ultra realistic portrait, 8k, masterpiece",
-        status: "waiting",
-        createdAt: new Date().toISOString(),
-    },
-    {
-        id: crypto.randomUUID(),
-        prompt: "Anime style, best quality, masterpiece",
-        status: "waiting",
-        createdAt: new Date().toISOString(),
-    },
-    {
-        id: crypto.randomUUID(),
-        prompt: "Cinematic photography, dramatic lighting",
-        status: "waiting",
-        createdAt: new Date().toISOString(),
-    },
-    {
-        id: crypto.randomUUID(),
-        prompt: "Fantasy landscape, ultra detailed",
-        status: "waiting",
-        createdAt: new Date().toISOString(),
-    },
-    {
-        id: crypto.randomUUID(),
-        prompt: "Luxury product photo, studio lighting",
-        status: "waiting",
-        createdAt: new Date().toISOString(),
-    },
-];
-
 export default function Workspace() {
 
+    // ========================================================================
+    // Browser
+    // ========================================================================
+
     const browserRef = useRef<BrowserHandle>(null);
+
+    // ========================================================================
+    // Queue
+    // ========================================================================
 
     const stopRef = useRef(false);
 
     const [running, setRunning] = useState(false);
 
-    const [jobs, setJobs] = useState<Job[]>(() => {
+    // ========================================================================
+    // Jobs
+    // ========================================================================
 
-        const saved = localStorage.getItem(STORAGE_KEY);
+    const [jobs, setJobs] = useState<Job[]>(() =>
+        loadProject(defaultJobs)
+    );
 
-        if (saved) {
-
-            try {
-
-                return JSON.parse(saved);
-
-            } catch {
-
-            }
-
-        }
-
-        return defaultJobs;
-
-    });
+    // ========================================================================
+    // Auto Save
+    // ========================================================================
 
     useEffect(() => {
 
-        localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify(jobs)
-        );
+        saveProject(jobs);
 
     }, [jobs]);
+
+    // ========================================================================
+    // Queue Start
+    // ========================================================================
 
     const startQueue = async () => {
 
@@ -97,105 +84,41 @@ export default function Workspace() {
 
         stopRef.current = false;
 
-        setRunning(true);
+        await runQueue({
 
-        try {
+            browser: browserRef.current,
 
-            for (let i = 0; i < jobs.length; i++) {
+            jobs,
 
-                if (stopRef.current)
-                    break;
+            stopRef,
 
-                setJobs(prev =>
-                    prev.map((job, index) => {
+            setJobs,
 
-                        if (index < i) {
+            onStart: () => {
 
-                            return {
+                setRunning(true);
 
-                                ...job,
+            },
 
-                                status: "done",
+            onFinish: () => {
 
-                            };
+                setRunning(false);
 
-                        }
+            },
 
-                        if (index === i) {
+            onError: (err) => {
 
-                            return {
+                console.error(err);
 
-                                ...job,
+            },
 
-                                status: "running",
-
-                            };
-
-                        }
-
-                        return {
-
-                            ...job,
-
-                            status: "waiting",
-
-                        };
-
-                    })
-                );
-
-                await browserRef.current.execute(
-                    buildPromptScript(jobs[i].prompt)
-                );
-
-                await browserRef.current.execute(
-                    buildWaitImageScript()
-                );
-
-                setJobs(prev =>
-                    prev.map((job, index) =>
-
-                        index === i
-
-                            ? {
-
-                                ...job,
-
-                                status: "done",
-
-                                completedAt: new Date().toISOString(),
-
-                            }
-
-                            : job
-
-                    )
-                );
-
-            }
-
-        } catch (err) {
-
-            console.error(err);
-
-            setJobs(prev =>
-                prev.map(job =>
-                    job.status === "running"
-                        ? {
-                            ...job,
-                            status: "error",
-                        }
-                        : job
-                )
-            );
-
-        } finally {
-
-            setRunning(false);
-
-        }
+        });
 
     };
+
+    // ========================================================================
+    // Queue Stop
+    // ========================================================================
 
     const stopQueue = () => {
 
@@ -203,37 +126,23 @@ export default function Workspace() {
 
     };
 
-    const addJob = () => {
+    // ========================================================================
+    // Job Event
+    // ========================================================================
 
-        setJobs(prev => [
+    const onAdd = () => {
 
-            ...prev,
-
-            {
-
-                id: crypto.randomUUID(),
-
-                prompt: "New Prompt",
-
-                status: "waiting",
-
-                createdAt: new Date().toISOString(),
-
-            },
-
-        ]);
+        setJobs(prev => addJob(prev));
 
     };
 
-    const deleteJob = (id: string) => {
+    const onDelete = (id: string) => {
 
-        setJobs(prev =>
-            prev.filter(job => job.id !== id)
-        );
+        setJobs(prev => deleteJob(prev, id));
 
     };
 
-    const editJob = (
+    const onEdit = (
 
         id: string,
 
@@ -242,34 +151,60 @@ export default function Workspace() {
     ) => {
 
         setJobs(prev =>
-            prev.map(job =>
 
-                job.id === id
+            editJob(
 
-                    ? {
+                prev,
 
-                        ...job,
+                id,
 
-                        prompt,
-
-                    }
-
-                    : job
+                prompt
 
             )
+
         );
 
     };
+
+    // =========================================================================
+    // PART 2부터 이어 붙여 넣으세요.
+    // =========================================================================
+
+// ============================================================================
+// File : src/components/Workspace/Workspace.tsx
+// PART 2 / 2
+//
+// 역할
+// - JSX
+// - UI
+// - Export
+// ============================================================================
 
     return (
 
         <div className="workspace">
 
+            {/* ===============================================================
+                Toolbar
+            ================================================================ */}
+
             <Toolbar />
+
+            {/* ===============================================================
+                Job Tabs
+            ================================================================ */}
 
             <JobTabs />
 
+            {/* ===============================================================
+                Main Layout
+            ================================================================ */}
+
             <div className="workspace-body">
+
+                {/* -----------------------------------------------------------
+                    Prompt
+                ------------------------------------------------------------ */}
 
                 <Prompt
 
@@ -277,35 +212,41 @@ export default function Workspace() {
 
                     onStart={startQueue}
 
-                    onAdd={addJob}
+                    onAdd={onAdd}
 
-                    onDelete={deleteJob}
+                    onDelete={onDelete}
 
-                    onEdit={editJob}
+                    onEdit={onEdit}
 
                 />
+
+                {/* -----------------------------------------------------------
+                    Browser
+                ------------------------------------------------------------ */}
 
                 <Browser
+
                     ref={browserRef}
+
                 />
+
+                {/* -----------------------------------------------------------
+                    Image Panel
+                ------------------------------------------------------------ */}
 
                 <ImageDrop />
 
             </div>
 
+            {/* ===============================================================
+                Stop Queue Button
+            ================================================================ */}
+
             {running && (
 
                 <button
 
-                    style={{
-
-                        position: "fixed",
-
-                        right: 20,
-
-                        bottom: 20,
-
-                    }}
+                    className="queue-stop-button"
 
                     onClick={stopQueue}
 
@@ -322,3 +263,7 @@ export default function Workspace() {
     );
 
 }
+
+// ============================================================================
+// End of File
+// ============================================================================

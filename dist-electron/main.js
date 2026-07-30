@@ -1,4 +1,4 @@
-import { app, session, BrowserWindow } from "electron";
+import { app, session, ipcMain, dialog, BrowserWindow } from "electron";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -33,29 +33,81 @@ function createWindow() {
     win.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
   win.webContents.openDevTools();
-  win.webContents.setWindowOpenHandler(() => {
-    return {
-      action: "deny"
-    };
-  });
+  win.webContents.setWindowOpenHandler(() => ({
+    action: "deny"
+  }));
 }
 app.whenReady().then(() => {
   session.defaultSession.setUserAgent(
     session.defaultSession.getUserAgent()
   );
-  const downloadDir = path.join(app.getPath("downloads"), "GPT Image Studio");
+  const downloadDir = path.join(
+    app.getPath("downloads"),
+    "GPT Image Studio"
+  );
   if (!fs.existsSync(downloadDir)) {
     fs.mkdirSync(downloadDir, { recursive: true });
   }
   session.defaultSession.on("will-download", (event, item) => {
     const fileName = Date.now() + path.extname(item.getFilename());
-    item.setSavePath(
-      path.join(downloadDir, fileName)
-    );
+    item.setSavePath(path.join(downloadDir, fileName));
     item.on("done", (_, state) => {
       console.log("Download:", state);
     });
   });
+  ipcMain.handle("project:open", async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ["openFile"],
+      filters: [
+        {
+          name: "GPT Image Studio Project",
+          extensions: ["gisp"]
+        }
+      ]
+    });
+    if (result.canceled) {
+      return null;
+    }
+    const filePath = result.filePaths[0];
+    const text = fs.readFileSync(filePath, "utf8");
+    return {
+      path: filePath,
+      data: JSON.parse(text)
+    };
+  });
+  ipcMain.handle(
+    "project:saveAs",
+    async (_, project) => {
+      const result = await dialog.showSaveDialog({
+        filters: [
+          {
+            name: "GPT Image Studio Project",
+            extensions: ["gisp"]
+          }
+        ]
+      });
+      if (result.canceled || !result.filePath) {
+        return null;
+      }
+      fs.writeFileSync(
+        result.filePath,
+        JSON.stringify(project, null, 2),
+        "utf8"
+      );
+      return result.filePath;
+    }
+  );
+  ipcMain.handle(
+    "project:save",
+    async (_, filePath, project) => {
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify(project, null, 2),
+        "utf8"
+      );
+      return true;
+    }
+  );
   createWindow();
 });
 app.on("activate", () => {

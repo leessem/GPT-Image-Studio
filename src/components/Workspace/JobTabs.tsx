@@ -1,20 +1,14 @@
 import "./JobTabs.css";
 
-export default function JobTabs(){
+export default function JobTabs() {
 
-    return(
+    return (
 
         <div className="job-tabs">
 
             <div className="job active">
 
                 Job 1
-
-            </div>
-
-            <div className="job">
-
-                +
 
             </div>
 
