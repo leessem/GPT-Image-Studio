@@ -20,6 +20,7 @@ import { runQueue } from "../Queue/QueueRunner";
 import {
     loadProject,
     saveProject,
+    isValidProject,
 } from "../../utils/ProjectStorage";
 
 import {
@@ -206,8 +207,30 @@ export default function Workspace() {
     };
 
     // ========================================================================
-    // Save Project (native file)
+    // Open / Save Project (native file)
     // ========================================================================
+
+    const onOpenProject = async () => {
+
+        const result = await window.ipcRenderer.project.open();
+
+        if (!result)
+            return;
+
+        if (!isValidProject(result.data)) {
+
+            console.error(
+                "Invalid project file:",
+                result.path
+            );
+
+            return;
+
+        }
+
+        setProject(result.data);
+
+    };
 
     const onSaveProject = async () => {
 
@@ -242,6 +265,8 @@ export default function Workspace() {
                 onNewJob={onAdd}
 
                 onGenerate={startQueue}
+
+                onOpen={onOpenProject}
 
                 onSave={onSaveProject}
 

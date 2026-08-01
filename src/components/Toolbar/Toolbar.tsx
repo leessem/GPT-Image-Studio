@@ -6,6 +6,8 @@ interface ToolbarProps {
 
     onGenerate: () => void;
 
+    onOpen: () => void;
+
     onSave: () => void;
 
 }
@@ -15,6 +17,8 @@ export default function Toolbar({
     onNewJob,
 
     onGenerate,
+
+    onOpen,
 
     onSave,
 
@@ -31,6 +35,8 @@ export default function Toolbar({
         <button onClick={onNewJob}>New Job</button>
 
         <button onClick={onGenerate}>Generate</button>
+
+        <button onClick={onOpen}>Open</button>
 
         <button onClick={onSave}>Save</button>
 
