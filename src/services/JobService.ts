@@ -6,6 +6,7 @@ import { Job } from "../types/Job";
 import {
     Project,
     ProjectTab,
+    createTab,
 } from "../types/Project";
 
 /**
@@ -31,6 +32,93 @@ export function getCurrentJobs(
 ): Job[] {
 
     return getCurrentTab(project).jobs;
+
+}
+
+/**
+ * 탭 추가
+ */
+export function addTab(
+
+    project: Project,
+
+    name = "New Tab"
+
+): Project {
+
+    const tab = createTab(name);
+
+    return {
+
+        ...project,
+
+        currentTabId: tab.id,
+
+        tabs: [
+            ...project.tabs,
+            tab,
+        ],
+
+    };
+
+}
+
+/**
+ * 탭 삭제
+ */
+export function deleteTab(
+
+    project: Project,
+
+    id: string
+
+): Project {
+
+    if (project.tabs.length <= 1)
+        return project;
+
+    const tabs = project.tabs.filter(
+        tab => tab.id !== id
+    );
+
+    const currentTabId =
+        project.currentTabId === id
+            ? tabs[0].id
+            : project.currentTabId;
+
+    return {
+
+        ...project,
+
+        tabs,
+
+        currentTabId,
+
+    };
+
+}
+
+/**
+ * 탭 전환
+ */
+export function switchTab(
+
+    project: Project,
+
+    id: string
+
+): Project {
+
+    if (!project.tabs.some(tab => tab.id === id))
+        return project;
+
+    return {
+
+        ...project,
+
+        currentTabId: id,
+
+    };
 
 }
 

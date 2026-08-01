@@ -1,6 +1,24 @@
 import "./Toolbar.css";
 
-export default function Toolbar() {
+interface ToolbarProps {
+
+    onNewJob: () => void;
+
+    onGenerate: () => void;
+
+    onSave: () => void;
+
+}
+
+export default function Toolbar({
+
+    onNewJob,
+
+    onGenerate,
+
+    onSave,
+
+}: ToolbarProps) {
   return (
     <div className="toolbar">
 
@@ -10,13 +28,13 @@ export default function Toolbar() {
 
       <div className="toolbar-buttons">
 
-        <button>New Job</button>
+        <button onClick={onNewJob}>New Job</button>
 
-        <button>Generate</button>
+        <button onClick={onGenerate}>Generate</button>
 
-        <button>Save</button>
+        <button onClick={onSave}>Save</button>
 
-        <button>Settings</button>
+        <button disabled title="Coming soon">Settings</button>
 
       </div>
 

@@ -39,3 +39,65 @@
     color:#fff;
 
 }
+
+.job{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:8px;
+
+}
+
+.job-delete{
+
+    background:transparent;
+
+    border:none;
+
+    color:inherit;
+
+    opacity:.6;
+
+    cursor:pointer;
+
+    font-size:12px;
+
+    line-height:1;
+
+    padding:0;
+
+}
+
+.job-delete:hover{
+
+    opacity:1;
+
+}
+
+.job-add{
+
+    padding:10px 16px;
+
+    background:transparent;
+
+    border:none;
+
+    color:#bbb;
+
+    cursor:pointer;
+
+    font-size:16px;
+
+    line-height:1;
+
+}
+
+.job-add:hover{
+
+    background:#2c2c2c;
+
+    color:#fff;
+
+}

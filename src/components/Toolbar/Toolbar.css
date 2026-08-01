@@ -47,3 +47,13 @@
     background:#5783ff;
 
 }
+
+.toolbar-buttons button:disabled{
+
+    background:#333;
+
+    color:#777;
+
+    cursor:not-allowed;
+
+}

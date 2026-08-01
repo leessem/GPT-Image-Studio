@@ -7,6 +7,7 @@ import { BrowserHandle } from "../Browser/Browser";
 import {
     buildPromptScript,
     buildWaitImageScript,
+    buildReadImageScript,
 } from "../Browser/ChatGPT";
 import {
     getCurrentJobs,
@@ -124,11 +125,33 @@ export async function runQueue({
             // 이미지 생성 대기
             // =================================================================
 
-            await browser.execute(
+            const waitResult = await browser.execute(
 
                 buildWaitImageScript()
 
-            );
+            ) as { success: boolean; src?: string };
+
+            // =================================================================
+            // 이미지 다운로드
+            // =================================================================
+
+            let imagePath: string | undefined;
+
+            if (waitResult?.success && waitResult.src) {
+
+                const readResult = await browser.execute(
+
+                    buildReadImageScript(waitResult.src)
+
+                ) as { success: boolean; data?: string };
+
+                if (readResult?.success && readResult.data) {
+
+                    imagePath = readResult.data;
+
+                }
+
+            }
 
             // =================================================================
             // 완료 처리
@@ -145,6 +168,8 @@ export async function runQueue({
                                 ...job,
 
                                 status: "done",
+
+                                imagePath: imagePath ?? job.imagePath,
 
                                 completedAt:
 

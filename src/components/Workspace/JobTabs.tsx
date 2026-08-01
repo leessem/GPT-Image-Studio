@@ -4,17 +4,87 @@
 
 import "./JobTabs.css";
 
-export default function JobTabs() {
+import { Project } from "../../types/Project";
+
+interface JobTabsProps {
+
+    project: Project;
+
+    onSwitch: (id: string) => void;
+
+    onAdd: () => void;
+
+    onDelete: (id: string) => void;
+
+}
+
+export default function JobTabs({
+
+    project,
+
+    onSwitch,
+
+    onAdd,
+
+    onDelete,
+
+}: JobTabsProps) {
 
     return (
 
         <div className="job-tabs">
 
-            <div className="job active">
+            {project.tabs.map(tab => (
 
-                Job 1
+                <div
 
-            </div>
+                    key={tab.id}
+
+                    className={`job ${tab.id === project.currentTabId ? "active" : ""}`}
+
+                    onClick={() => onSwitch(tab.id)}
+
+                >
+
+                    <span>{tab.name}</span>
+
+                    {project.tabs.length > 1 && (
+
+                        <button
+
+                            className="job-delete"
+
+                            onClick={e => {
+
+                                e.stopPropagation();
+
+                                onDelete(tab.id);
+
+                            }}
+
+                        >
+
+                            ✕
+
+                        </button>
+
+                    )}
+
+                </div>
+
+            ))}
+
+            <button
+
+                className="job-add"
+
+                onClick={onAdd}
+
+            >
+
+                +
+
+            </button>
 
         </div>
 

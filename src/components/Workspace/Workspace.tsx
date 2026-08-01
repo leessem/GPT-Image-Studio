@@ -26,6 +26,9 @@ import {
     addJob,
     deleteJob,
     editJob,
+    addTab,
+    deleteTab,
+    switchTab,
 } from "../../services/JobService";
 
 import "./Workspace.css";
@@ -180,6 +183,38 @@ export default function Workspace() {
 
     };
 
+    // ========================================================================
+    // Tab Event
+    // ========================================================================
+
+    const onSwitchTab = (id: string) => {
+
+        setProject(prev => switchTab(prev, id));
+
+    };
+
+    const onAddTab = () => {
+
+        setProject(prev => addTab(prev));
+
+    };
+
+    const onDeleteTab = (id: string) => {
+
+        setProject(prev => deleteTab(prev, id));
+
+    };
+
+    // ========================================================================
+    // Save Project (native file)
+    // ========================================================================
+
+    const onSaveProject = async () => {
+
+        await window.ipcRenderer.project.saveAs(project);
+
+    };
+
     // =========================================================================
     // PART 2부터 이어 붙여 넣으세요.
     // =========================================================================
@@ -202,13 +237,31 @@ export default function Workspace() {
                 Toolbar
             ================================================================ */}
 
-            <Toolbar />
+            <Toolbar
+
+                onNewJob={onAdd}
+
+                onGenerate={startQueue}
+
+                onSave={onSaveProject}
+
+            />
 
             {/* ===============================================================
                 Job Tabs
             ================================================================ */}
 
-            <JobTabs />
+            <JobTabs
+
+                project={project}
+
+                onSwitch={onSwitchTab}
+
+                onAdd={onAddTab}
+
+                onDelete={onDeleteTab}
+
+            />
 
             {/* ===============================================================
                 Main Layout
