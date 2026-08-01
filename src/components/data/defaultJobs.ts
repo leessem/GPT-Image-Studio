@@ -1,4 +1,4 @@
-import { Job } from "../types/Job";
+import { Job } from "../../types/Job";
 
 export const defaultJobs: Job[] = [
     {

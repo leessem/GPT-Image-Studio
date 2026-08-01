@@ -11,7 +11,7 @@ import Toolbar from "../Toolbar/Toolbar";
 import ImageDrop from "../ImageDrop/ImageDrop";
 import JobTabs from "./JobTabs";
 
-import { Job } from "../../types/Job";
+import { Project, createProject } from "../../types/Project";
 
 import { defaultJobs } from "../data/defaultJobs";
 
@@ -30,6 +30,26 @@ import {
 
 import "./Workspace.css";
 
+// ========================================================================
+// 기본 프로젝트 생성
+// ========================================================================
+
+function buildDefaultProject(): Project {
+
+    const project = createProject();
+
+    project.tabs[0] = {
+
+        ...project.tabs[0],
+
+        jobs: defaultJobs,
+
+    };
+
+    return project;
+
+}
+
 export default function Workspace() {
 
     // ========================================================================
@@ -47,11 +67,11 @@ export default function Workspace() {
     const [running, setRunning] = useState(false);
 
     // ========================================================================
-    // Jobs
+    // Project
     // ========================================================================
 
-    const [jobs, setJobs] = useState<Job[]>(() =>
-        loadProject(defaultJobs)
+    const [project, setProject] = useState<Project>(() =>
+        loadProject(buildDefaultProject())
     );
 
     // ========================================================================
@@ -60,9 +80,9 @@ export default function Workspace() {
 
     useEffect(() => {
 
-        saveProject(jobs);
+        saveProject(project);
 
-    }, [jobs]);
+    }, [project]);
 
     // ========================================================================
     // Queue Start
@@ -82,11 +102,11 @@ export default function Workspace() {
 
             browser: browserRef.current,
 
-            jobs,
+            project,
 
             stopRef,
 
-            setJobs,
+            setProject,
 
             onStart: () => {
 
@@ -126,13 +146,13 @@ export default function Workspace() {
 
     const onAdd = () => {
 
-        setJobs(prev => addJob(prev));
+        setProject(prev => addJob(prev));
 
     };
 
     const onDelete = (id: string) => {
 
-        setJobs(prev => deleteJob(prev, id));
+        setProject(prev => deleteJob(prev, id));
 
     };
 
@@ -144,7 +164,7 @@ export default function Workspace() {
 
     ) => {
 
-        setJobs(prev =>
+        setProject(prev =>
 
             editJob(
 
@@ -202,7 +222,7 @@ export default function Workspace() {
 
                 <Prompt
 
-                    jobs={jobs}
+                    project={project}
 
                     onStart={startQueue}
 

@@ -4,11 +4,12 @@
 
 import "./Prompt.css";
 
-import { Job } from "../../types/Job";
+import { Project } from "../../types/Project";
+import { getCurrentJobs } from "../../services/JobService";
 
 interface PromptProps {
 
-    jobs: Job[];
+    project: Project;
 
     onStart: () => void;
 
@@ -22,7 +23,7 @@ interface PromptProps {
 
 export default function Prompt({
 
-    jobs,
+    project,
 
     onStart,
 
@@ -30,9 +31,11 @@ export default function Prompt({
 
     onDelete,
 
-    onEdit
+    onEdit,
 
 }: PromptProps) {
+
+    const jobs = getCurrentJobs(project);
 
     return (
 

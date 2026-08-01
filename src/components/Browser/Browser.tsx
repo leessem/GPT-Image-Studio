@@ -7,14 +7,14 @@ import {
 import "./Browser.css";
 
 export interface BrowserHandle {
-  execute(script: string): Promise<any>;
+  execute(script: string): Promise<unknown>;
   reload(): void;
   goBack(): void;
   goForward(): void;
 }
 
 const Browser = forwardRef<BrowserHandle>((_, ref) => {
-  const webviewRef = useRef<any>(null);
+  const webviewRef = useRef<Electron.WebviewTag>(null);
 
   useImperativeHandle(ref, () => ({
     async execute(script: string) {

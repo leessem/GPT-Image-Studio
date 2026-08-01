@@ -1,11 +1,13 @@
 import { app, session, ipcMain, dialog, BrowserWindow } from "electron";
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
-createRequire(import.meta.url);
 const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
 process.env.APP_ROOT = path.join(__dirname$1, "..");
+app.disableHardwareAcceleration();
+app.commandLine.appendSwitch("disable-gpu");
+app.commandLine.appendSwitch("disable-gpu-compositing");
+app.commandLine.appendSwitch("disable-software-rasterizer");
 const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
 const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
@@ -24,7 +26,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: true,
-      sandbox: false
+      sandbox: true
     }
   });
   if (VITE_DEV_SERVER_URL) {
@@ -48,7 +50,7 @@ app.whenReady().then(() => {
   if (!fs.existsSync(downloadDir)) {
     fs.mkdirSync(downloadDir, { recursive: true });
   }
-  session.defaultSession.on("will-download", (event, item) => {
+  session.defaultSession.on("will-download", (_event, item) => {
     const fileName = Date.now() + path.extname(item.getFilename());
     item.setSavePath(path.join(downloadDir, fileName));
     item.on("done", (_, state) => {

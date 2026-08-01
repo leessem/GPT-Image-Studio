@@ -65,7 +65,7 @@ declare global {
       invoke: typeof ipcRenderer.invoke;
 
       project: {
-        open(): Promise<any>;
+        open(): Promise<{ path: string; data: unknown } | null>;
 
         save(
           filePath: string,

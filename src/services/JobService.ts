@@ -3,6 +3,36 @@
 // ============================================================================
 
 import { Job } from "../types/Job";
+import {
+    Project,
+    ProjectTab,
+} from "../types/Project";
+
+/**
+ * 현재 탭 반환
+ */
+export function getCurrentTab(
+    project: Project
+): ProjectTab {
+
+    return (
+        project.tabs.find(
+            tab => tab.id === project.currentTabId
+        ) ?? project.tabs[0]
+    );
+
+}
+
+/**
+ * 현재 작업 반환
+ */
+export function getCurrentJobs(
+    project: Project
+): Job[] {
+
+    return getCurrentTab(project).jobs;
+
+}
 
 /**
  * 새 작업 생성
@@ -24,23 +54,53 @@ export function createJob(prompt = "New Prompt"): Job {
 }
 
 /**
+ * 현재 탭 작업 변경
+ */
+export function updateCurrentJobs(
+
+    project: Project,
+
+    updater: (jobs: Job[]) => Job[]
+
+): Project {
+
+    return {
+
+        ...project,
+
+        tabs: project.tabs.map(tab =>
+
+            tab.id === project.currentTabId
+                ? {
+                      ...tab,
+                      jobs: updater(tab.jobs),
+                  }
+                : tab
+
+        ),
+
+    };
+
+}
+
+/**
  * 작업 추가
  */
 export function addJob(
 
-    jobs: Job[],
+    project: Project,
 
     prompt = "New Prompt"
 
-): Job[] {
+): Project {
 
-    return [
-
-        ...jobs,
-
-        createJob(prompt),
-
-    ];
+    return updateCurrentJobs(
+        project,
+        jobs => [
+            ...jobs,
+            createJob(prompt),
+        ]
+    );
 
 }
 
@@ -49,16 +109,17 @@ export function addJob(
  */
 export function deleteJob(
 
-    jobs: Job[],
+    project: Project,
 
     id: string
 
-): Job[] {
+): Project {
 
-    return jobs.filter(
-
-        job => job.id !== id
-
+    return updateCurrentJobs(
+        project,
+        jobs => jobs.filter(
+            job => job.id !== id
+        )
     );
 
 }
@@ -68,28 +129,25 @@ export function deleteJob(
  */
 export function editJob(
 
-    jobs: Job[],
+    project: Project,
 
     id: string,
 
     prompt: string
 
-): Job[] {
+): Project {
 
-    return jobs.map(job =>
-
-        job.id === id
-
-            ? {
-
-                ...job,
-
-                prompt,
-
-            }
-
-            : job
-
+    return updateCurrentJobs(
+        project,
+        jobs =>
+            jobs.map(job =>
+                job.id === id
+                    ? {
+                          ...job,
+                          prompt,
+                      }
+                    : job
+            )
     );
 
 }
@@ -99,40 +157,45 @@ export function editJob(
  */
 export function duplicateJob(
 
-    jobs: Job[],
+    project: Project,
 
     id: string
 
-): Job[] {
+): Project {
 
-    const target = jobs.find(
+    return updateCurrentJobs(
+        project,
+        jobs => {
 
-        job => job.id === id
+            const target = jobs.find(
+                job => job.id === id
+            );
 
+            if (!target)
+                return jobs;
+
+            return [
+
+                ...jobs,
+
+                {
+
+                    ...target,
+
+                    id: crypto.randomUUID(),
+
+                    status: "waiting",
+
+                    createdAt: new Date().toISOString(),
+
+                    completedAt: undefined,
+
+                },
+
+            ];
+
+        }
     );
-
-    if (!target)
-        return jobs;
-
-    return [
-
-        ...jobs,
-
-        {
-
-            ...target,
-
-            id: crypto.randomUUID(),
-
-            status: "waiting",
-
-            createdAt: new Date().toISOString(),
-
-            completedAt: undefined,
-
-        },
-
-    ];
 
 }
 
@@ -141,90 +204,78 @@ export function duplicateJob(
  */
 export function resetJobs(
 
-    jobs: Job[]
+    project: Project
 
-): Job[] {
+): Project {
 
-    return jobs.map(job => ({
+    return updateCurrentJobs(
+        project,
+        jobs =>
+            jobs.map(job => ({
 
-        ...job,
+                ...job,
 
-        status: "waiting",
+                status: "waiting",
 
-        completedAt: undefined,
+                completedAt: undefined,
 
-    }));
+            }))
+    );
 
 }
 
 /**
- * 완료된 작업 개수
+ * 완료 개수
  */
 export function completedCount(
-
-    jobs: Job[]
-
+    project: Project
 ): number {
 
-    return jobs.filter(
-
+    return getCurrentJobs(project).filter(
         job => job.status === "done"
-
     ).length;
 
 }
 
 /**
- * 실행 중인 작업 개수
+ * 실행 개수
  */
 export function runningCount(
-
-    jobs: Job[]
-
+    project: Project
 ): number {
 
-    return jobs.filter(
-
+    return getCurrentJobs(project).filter(
         job => job.status === "running"
-
     ).length;
 
 }
 
 /**
- * 대기 중인 작업 개수
+ * 대기 개수
  */
 export function waitingCount(
-
-    jobs: Job[]
-
+    project: Project
 ): number {
 
-    return jobs.filter(
-
+    return getCurrentJobs(project).filter(
         job => job.status === "waiting"
-
     ).length;
 
 }
 
 /**
- * 에러 작업 개수
+ * 에러 개수
  */
 export function errorCount(
-
-    jobs: Job[]
-
+    project: Project
 ): number {
 
-    return jobs.filter(
-
+    return getCurrentJobs(project).filter(
         job => job.status === "error"
-
     ).length;
 
 }
 
 // ============================================================================
-// End of File
+// End
 // ============================================================================

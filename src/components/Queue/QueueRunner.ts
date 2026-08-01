@@ -2,22 +2,26 @@
 // File : src/components/Queue/QueueRunner.ts
 // ============================================================================
 
-import { Job } from "../types/Job";
+import { Project } from "../../types/Project";
 import { BrowserHandle } from "../Browser/Browser";
 import {
     buildPromptScript,
     buildWaitImageScript,
 } from "../Browser/ChatGPT";
+import {
+    getCurrentJobs,
+    updateCurrentJobs,
+} from "../../services/JobService";
 
 export interface QueueRunnerOptions {
 
     browser: BrowserHandle;
 
-    jobs: Job[];
+    project: Project;
 
     stopRef: React.MutableRefObject<boolean>;
 
-    setJobs: React.Dispatch<React.SetStateAction<Job[]>>;
+    setProject: React.Dispatch<React.SetStateAction<Project>>;
 
     onStart?: () => void;
 
@@ -31,11 +35,11 @@ export async function runQueue({
 
     browser,
 
-    jobs,
+    project,
 
     stopRef,
 
-    setJobs,
+    setProject,
 
     onStart,
 
@@ -49,6 +53,8 @@ export async function runQueue({
 
     try {
 
+        const jobs = getCurrentJobs(project);
+
         for (let i = 0; i < jobs.length; i++) {
 
             if (stopRef.current)
@@ -60,42 +66,44 @@ export async function runQueue({
             // 상태 변경
             // =================================================================
 
-            setJobs(prev =>
-                prev.map((job, index) => {
+            setProject(prev =>
+                updateCurrentJobs(prev, tabJobs =>
+                    tabJobs.map((job, index) => {
 
-                    if (index < i) {
+                        if (index < i) {
+
+                            return {
+
+                                ...job,
+
+                                status: "done",
+
+                            };
+
+                        }
+
+                        if (index === i) {
+
+                            return {
+
+                                ...job,
+
+                                status: "running",
+
+                            };
+
+                        }
 
                         return {
 
                             ...job,
 
-                            status: "done",
+                            status: "waiting",
 
                         };
 
-                    }
-
-                    if (index === i) {
-
-                        return {
-
-                            ...job,
-
-                            status: "running",
-
-                        };
-
-                    }
-
-                    return {
-
-                        ...job,
-
-                        status: "waiting",
-
-                    };
-
-                })
+                    })
+                )
             );
 
             // =================================================================
@@ -126,25 +134,27 @@ export async function runQueue({
             // 완료 처리
             // =================================================================
 
-            setJobs(prev =>
-                prev.map((job, index) =>
+            setProject(prev =>
+                updateCurrentJobs(prev, tabJobs =>
+                    tabJobs.map((job, index) =>
 
-                    index === i
+                        index === i
 
-                        ? {
+                            ? {
 
-                            ...job,
+                                ...job,
 
-                            status: "done",
+                                status: "done",
 
-                            completedAt:
+                                completedAt:
 
-                                new Date().toISOString(),
+                                    new Date().toISOString(),
 
-                        }
+                            }
 
-                        : job
+                            : job
 
+                    )
                 )
             );
 
@@ -156,21 +166,23 @@ export async function runQueue({
 
         console.error(err);
 
-        setJobs(prev =>
-            prev.map(job =>
+        setProject(prev =>
+            updateCurrentJobs(prev, tabJobs =>
+                tabJobs.map(job =>
 
-                job.status === "running"
+                    job.status === "running"
 
-                    ? {
+                        ? {
 
-                        ...job,
+                            ...job,
 
-                        status: "error",
+                            status: "error",
 
-                    }
+                        }
 
-                    : job
+                        : job
 
+                )
             )
         );
 
