@@ -28,6 +28,14 @@ export function loadProject(defaultProject: Project): Project {
 
         const project = JSON.parse(saved) as Project;
 
+        if (
+            !project ||
+            !Array.isArray(project.tabs) ||
+            project.tabs.length === 0
+        ) {
+            return defaultProject;
+        }
+
         return project;
 
     }

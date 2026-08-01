@@ -1,64 +1,54 @@
-import { app, session, ipcMain, dialog, BrowserWindow } from "electron";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-import fs from "node:fs";
-const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
-process.env.APP_ROOT = path.join(__dirname$1, "..");
-app.disableHardwareAcceleration();
-app.commandLine.appendSwitch("disable-gpu");
-app.commandLine.appendSwitch("disable-gpu-compositing");
-app.commandLine.appendSwitch("disable-software-rasterizer");
-const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
-const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
-const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
-let win = null;
-function createWindow() {
-  win = new BrowserWindow({
+import { app as e, session as l, ipcMain as c, dialog as p, BrowserWindow as u } from "electron";
+import { fileURLToPath as h } from "node:url";
+import o from "node:path";
+import a from "node:fs";
+const f = o.dirname(h(import.meta.url));
+process.env.APP_ROOT = o.join(f, "..");
+const P = e.requestSingleInstanceLock();
+P || e.quit();
+e.disableHardwareAcceleration();
+e.commandLine.appendSwitch("disable-gpu");
+e.commandLine.appendSwitch("disable-gpu-compositing");
+const d = process.env.VITE_DEV_SERVER_URL, I = o.join(process.env.APP_ROOT, "dist-electron"), w = o.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = d ? o.join(process.env.APP_ROOT, "public") : w;
+let i = null;
+e.on("second-instance", () => {
+  i && (i.isMinimized() && i.restore(), i.focus());
+});
+function m() {
+  i = new u({
     width: 1800,
     height: 1100,
     minWidth: 1400,
     minHeight: 900,
     title: "GPT Image Studio Pro",
-    autoHideMenuBar: true,
+    autoHideMenuBar: !0,
     webPreferences: {
-      preload: path.join(__dirname$1, "preload.mjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      webviewTag: true,
-      sandbox: true
+      preload: o.join(f, "preload.mjs"),
+      contextIsolation: !0,
+      nodeIntegration: !1,
+      webviewTag: !0,
+      sandbox: !0
     }
-  });
-  if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL);
-  } else {
-    win.loadFile(path.join(RENDERER_DIST, "index.html"));
-  }
-  win.webContents.openDevTools();
-  win.webContents.setWindowOpenHandler(() => ({
+  }), d ? i.loadURL(d) : i.loadFile(o.join(w, "index.html")), i.webContents.openDevTools(), i.webContents.setWindowOpenHandler(() => ({
     action: "deny"
   }));
 }
-app.whenReady().then(() => {
-  session.defaultSession.setUserAgent(
-    session.defaultSession.getUserAgent()
+e.whenReady().then(() => {
+  l.defaultSession.setUserAgent(
+    l.defaultSession.getUserAgent()
   );
-  const downloadDir = path.join(
-    app.getPath("downloads"),
+  const r = o.join(
+    e.getPath("downloads"),
     "GPT Image Studio"
   );
-  if (!fs.existsSync(downloadDir)) {
-    fs.mkdirSync(downloadDir, { recursive: true });
-  }
-  session.defaultSession.on("will-download", (_event, item) => {
-    const fileName = Date.now() + path.extname(item.getFilename());
-    item.setSavePath(path.join(downloadDir, fileName));
-    item.on("done", (_, state) => {
-      console.log("Download:", state);
+  a.existsSync(r) || a.mkdirSync(r, { recursive: !0 }), l.defaultSession.on("will-download", (s, n) => {
+    const t = Date.now() + o.extname(n.getFilename());
+    n.setSavePath(o.join(r, t)), n.on("done", (S, g) => {
+      console.log("Download:", g);
     });
-  });
-  ipcMain.handle("project:open", async () => {
-    const result = await dialog.showOpenDialog({
+  }), c.handle("project:open", async () => {
+    const s = await p.showOpenDialog({
       properties: ["openFile"],
       filters: [
         {
@@ -67,20 +57,17 @@ app.whenReady().then(() => {
         }
       ]
     });
-    if (result.canceled) {
+    if (s.canceled)
       return null;
-    }
-    const filePath = result.filePaths[0];
-    const text = fs.readFileSync(filePath, "utf8");
+    const n = s.filePaths[0], t = a.readFileSync(n, "utf8");
     return {
-      path: filePath,
-      data: JSON.parse(text)
+      path: n,
+      data: JSON.parse(t)
     };
-  });
-  ipcMain.handle(
+  }), c.handle(
     "project:saveAs",
-    async (_, project) => {
-      const result = await dialog.showSaveDialog({
+    async (s, n) => {
+      const t = await p.showSaveDialog({
         filters: [
           {
             name: "GPT Image Studio Project",
@@ -88,42 +75,29 @@ app.whenReady().then(() => {
           }
         ]
       });
-      if (result.canceled || !result.filePath) {
-        return null;
-      }
-      fs.writeFileSync(
-        result.filePath,
-        JSON.stringify(project, null, 2),
+      return t.canceled || !t.filePath ? null : (a.writeFileSync(
+        t.filePath,
+        JSON.stringify(n, null, 2),
         "utf8"
-      );
-      return result.filePath;
+      ), t.filePath);
     }
-  );
-  ipcMain.handle(
+  ), c.handle(
     "project:save",
-    async (_, filePath, project) => {
-      fs.writeFileSync(
-        filePath,
-        JSON.stringify(project, null, 2),
-        "utf8"
-      );
-      return true;
-    }
-  );
-  createWindow();
+    async (s, n, t) => (a.writeFileSync(
+      n,
+      JSON.stringify(t, null, 2),
+      "utf8"
+    ), !0)
+  ), m();
 });
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+e.on("activate", () => {
+  u.getAllWindows().length === 0 && m();
 });
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+e.on("window-all-closed", () => {
+  process.platform !== "darwin" && e.quit();
 });
 export {
-  MAIN_DIST,
-  RENDERER_DIST,
-  VITE_DEV_SERVER_URL
+  I as MAIN_DIST,
+  w as RENDERER_DIST,
+  d as VITE_DEV_SERVER_URL
 };
