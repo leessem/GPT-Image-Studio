@@ -62,6 +62,9 @@ electron.contextBridge.exposeInMainWorld("ipcRenderer", {
         };
         electron.ipcRenderer.on("image:downloaded", handler);
       });
+    },
+    verifyFile(filePath) {
+      return electron.ipcRenderer.invoke("image:verifyFile", filePath);
     }
   }
 });

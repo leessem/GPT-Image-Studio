@@ -133,6 +133,35 @@ app.whenReady().then(() => {
     event.returnValue = true;
   });
 
+  // Verifies the downloaded file actually exists on disk (a non-zero
+  // size, not just the will-download "completed" event). Polls for a
+  // bounded time instead of assuming the write is already visible.
+  ipcMain.handle(
+    "image:verifyFile",
+    async (_, filePath: string) => {
+      const timeoutMs = 3000;
+      const pollMs = 100;
+      const startedAt = Date.now();
+
+      while (Date.now() - startedAt <= timeoutMs) {
+        try {
+          const stat = fs.statSync(filePath);
+
+          if (stat.size > 0) {
+            return { exists: true, size: stat.size };
+          }
+        }
+        catch {
+          // not yet present - keep polling
+        }
+
+        await new Promise(resolve => setTimeout(resolve, pollMs));
+      }
+
+      return { exists: false, size: 0 };
+    }
+  );
+
   // ===============================
   // Project Open
   // ===============================

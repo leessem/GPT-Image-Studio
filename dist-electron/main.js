@@ -80,6 +80,25 @@ app.whenReady().then(() => {
     pendingDownloadJobId = jobId;
     event.returnValue = true;
   });
+  ipcMain.handle(
+    "image:verifyFile",
+    async (_, filePath) => {
+      const timeoutMs = 3e3;
+      const pollMs = 100;
+      const startedAt = Date.now();
+      while (Date.now() - startedAt <= timeoutMs) {
+        try {
+          const stat = fs.statSync(filePath);
+          if (stat.size > 0) {
+            return { exists: true, size: stat.size };
+          }
+        } catch {
+        }
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
+      }
+      return { exists: false, size: 0 };
+    }
+  );
   ipcMain.handle("project:open", async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openFile"],

@@ -84,6 +84,10 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
 
         ipcRenderer.on("image:downloaded", handler);
       });
+    },
+
+    verifyFile(filePath: string) {
+      return ipcRenderer.invoke("image:verifyFile", filePath);
     }
   }
 });
@@ -113,6 +117,10 @@ declare global {
         armDownload(jobId: string): void;
 
         waitForDownload(jobId: string): Promise<string>;
+
+        verifyFile(
+          filePath: string
+        ): Promise<{ exists: boolean; size: number }>;
       };
     };
   }

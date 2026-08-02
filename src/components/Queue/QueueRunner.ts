@@ -367,16 +367,18 @@ export async function runQueue({
             console.log("[Queue] Download button found");
             console.log("[Queue] Download button clicked");
 
+            let imagePath: string;
+
             try {
 
-                const downloadedPath = await withTimeout(
+                imagePath = await withTimeout(
                     downloadEventPromise,
                     DOWNLOAD_EVENT_TIMEOUT_MS
                 );
 
                 console.log(
                     "[Queue] Electron will-download event fired:",
-                    downloadedPath
+                    imagePath
                 );
 
             }
@@ -400,6 +402,38 @@ export async function runQueue({
                 break;
 
             }
+
+            // =================================================================
+            // 다운로드된 파일이 실제로 디스크에 존재하는지 검증
+            // =================================================================
+
+            const verifyResult = await window.ipcRenderer.image.verifyFile(
+                imagePath
+            );
+
+            if (!verifyResult?.exists || verifyResult.size === 0) {
+
+                console.error(
+                    `[Queue] Downloaded file not found on disk: ${imagePath}`
+                );
+
+                setProject(prev =>
+                    updateCurrentJobs(prev, tabJobs =>
+                        tabJobs.map((job, index) =>
+                            index === i
+                                ? { ...job, status: "error" }
+                                : job
+                        )
+                    )
+                );
+
+                break;
+
+            }
+
+            console.log(
+                `[Queue] File verified on disk (${verifyResult.size} bytes): ${imagePath}`
+            );
 
             // =================================================================
             // 뷰어 닫기 + 텍스트 입력창 활성화 확인
@@ -436,7 +470,8 @@ export async function runQueue({
             console.log("[Queue] Prompt textarea active again");
 
             // =================================================================
-            // 완료 처리 (imagePath 반영은 다음 단계에서 구현 예정)
+            // 완료 처리 + imagePath 저장 (ImageDrop은 project 상태로부터
+            // generatedImages를 다시 계산하므로 별도 refresh 호출이 필요 없음)
             // =================================================================
 
             setProject(prev =>
@@ -451,6 +486,8 @@ export async function runQueue({
 
                                 status: "done",
 
+                                imagePath,
+
                                 completedAt:
 
                                     new Date().toISOString(),
@@ -461,6 +498,10 @@ export async function runQueue({
 
                     )
                 )
+            );
+
+            console.log(
+                `[Queue] ImageDrop refreshed with ${imagePath}`
             );
 
             console.log(
