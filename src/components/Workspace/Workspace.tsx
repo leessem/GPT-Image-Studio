@@ -16,6 +16,7 @@ import { Project, createProject } from "../../types/Project";
 import { defaultJobs } from "../data/defaultJobs";
 
 import { runQueue } from "../Queue/QueueRunner";
+import { buildInsertPromptScript } from "../Browser/ChatGPT";
 
 import {
     loadProject,
@@ -192,6 +193,21 @@ export default function Workspace() {
     };
 
     // ========================================================================
+    // Prompt Library Selection
+    // ========================================================================
+
+    const onSelectPrompt = async (prompt: string) => {
+
+        if (!browserRef.current)
+            return;
+
+        await browserRef.current.execute(
+            buildInsertPromptScript(prompt)
+        );
+
+    };
+
+    // ========================================================================
     // Tab Event
     // ========================================================================
 
@@ -316,6 +332,8 @@ export default function Workspace() {
                     onDelete={onDelete}
 
                     onEdit={onEdit}
+
+                    onSelectPrompt={onSelectPrompt}
 
                 />
 

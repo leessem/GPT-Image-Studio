@@ -19,6 +19,8 @@ interface PromptProps {
 
     onEdit: (id: string, prompt: string) => void;
 
+    onSelectPrompt: (prompt: string) => void;
+
 }
 
 export default function Prompt({
@@ -32,6 +34,8 @@ export default function Prompt({
     onDelete,
 
     onEdit,
+
+    onSelectPrompt,
 
 }: PromptProps) {
 
@@ -66,6 +70,12 @@ export default function Prompt({
                         key={job.id}
 
                         className={`prompt-item ${job.status}`}
+
+                        onClick={() =>
+
+                            onSelectPrompt(job.prompt)
+
+                        }
 
                     >
 
@@ -105,11 +115,13 @@ export default function Prompt({
 
                             className="prompt-delete"
 
-                            onClick={() =>
+                            onClick={e => {
 
-                                onDelete(job.id)
+                                e.stopPropagation();
 
-                            }
+                                onDelete(job.id);
+
+                            }}
 
                         >
 

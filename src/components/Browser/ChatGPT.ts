@@ -1,9 +1,5 @@
-export function buildPromptScript(prompt: string) {
+function buildInsertPromptTextSnippet(prompt: string) {
   return `
-(() => {
-
-  console.log("[ChatGPT] buildPromptScript executing");
-
   const text = ${JSON.stringify(prompt)};
 
   const editor = document.querySelector("#prompt-textarea");
@@ -64,7 +60,30 @@ export function buildPromptScript(prompt: string) {
   }));
 
   console.log("[ChatGPT] prompt text inserted into editor");
+`;
+}
 
+export function buildInsertPromptScript(prompt: string) {
+  return `
+(() => {
+
+  console.log("[ChatGPT] buildInsertPromptScript executing");
+${buildInsertPromptTextSnippet(prompt)}
+  return {
+    success: true,
+    step: "inserted"
+  };
+
+})();
+`;
+}
+
+export function buildPromptScript(prompt: string) {
+  return `
+(() => {
+
+  console.log("[ChatGPT] buildPromptScript executing");
+${buildInsertPromptTextSnippet(prompt)}
   return new Promise((resolve) => {
 
     const timeoutMs = 5000;
