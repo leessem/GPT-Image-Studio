@@ -65,25 +65,48 @@ export function buildPromptScript(prompt: string) {
 
   console.log("[ChatGPT] prompt text inserted into editor");
 
-  const sendButton = document.querySelector("#composer-submit-button");
+  return new Promise((resolve) => {
 
-  if (!sendButton) {
-    console.error("[ChatGPT] #composer-submit-button not found");
-    return {
-      success: false,
-      step: "send-button-not-found",
-      reason: "send button not found"
+    const timeoutMs = 5000;
+    const pollMs = 100;
+    const startedAt = Date.now();
+
+    const checkSendButton = () => {
+
+      const sendButton = document.querySelector("#composer-submit-button");
+
+      if (sendButton) {
+
+        sendButton.click();
+
+        console.log("[ChatGPT] send button clicked");
+
+        resolve({
+          success: true,
+          step: "send-clicked"
+        });
+
+        return;
+
+      }
+
+      if (Date.now() - startedAt > timeoutMs) {
+        console.error("[ChatGPT] #composer-submit-button not found");
+        resolve({
+          success: false,
+          step: "send-button-not-found",
+          reason: "send button not found"
+        });
+        return;
+      }
+
+      setTimeout(checkSendButton, pollMs);
+
     };
-  }
 
-  sendButton.click();
+    checkSendButton();
 
-  console.log("[ChatGPT] send button clicked");
-
-  return {
-    success: true,
-    step: "send-clicked"
-  };
+  });
 
 })();
 `;
