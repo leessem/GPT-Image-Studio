@@ -237,10 +237,15 @@ export function buildClickDownloadButtonScript() {
   });
 
   if (!downloadButton) {
+    console.error("[ChatGPT] download button not found");
     return { success: false, reason: "download button not found" };
   }
 
+  console.log("[ChatGPT] download button found");
+
   downloadButton.click();
+
+  console.log("[ChatGPT] download button clicked");
 
   return { success: true };
 

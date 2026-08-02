@@ -9,6 +9,7 @@ import {
     buildWaitImageScript,
     buildOpenImageViewerScript,
     buildWaitImageViewerScript,
+    buildClickDownloadButtonScript,
 } from "../Browser/ChatGPT";
 import {
     getCurrentJobs,
@@ -16,6 +17,7 @@ import {
 } from "../../services/JobService";
 
 const VIEWER_TIMEOUT_MS = 15000;
+const DOWNLOAD_EVENT_TIMEOUT_MS = 15000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
@@ -317,7 +319,82 @@ export async function runQueue({
             console.log("[Queue] Image viewer opened");
 
             // =================================================================
-            // 완료 처리 (다운로드는 다음 단계에서 구현 예정)
+            // 다운로드 버튼 클릭 + will-download 이벤트 발생 검증
+            // (ImageDrop 저장/imagePath 반영은 다음 단계에서 구현 예정)
+            // =================================================================
+
+            window.ipcRenderer.image.armDownload(currentJob.id);
+
+            const downloadEventPromise =
+                window.ipcRenderer.image.waitForDownload(
+                    currentJob.id
+                );
+
+            const downloadClickResult = await browser.execute(
+
+                buildClickDownloadButtonScript()
+
+            ) as { success: boolean; reason?: string } | undefined;
+
+            if (!downloadClickResult?.success) {
+
+                console.error(
+                    `[Queue] Download button not found: ${downloadClickResult?.reason ?? "no result"}`
+                );
+
+                setProject(prev =>
+                    updateCurrentJobs(prev, tabJobs =>
+                        tabJobs.map((job, index) =>
+                            index === i
+                                ? { ...job, status: "error" }
+                                : job
+                        )
+                    )
+                );
+
+                break;
+
+            }
+
+            console.log("[Queue] Download button found");
+            console.log("[Queue] Download button clicked");
+
+            try {
+
+                const downloadedPath = await withTimeout(
+                    downloadEventPromise,
+                    DOWNLOAD_EVENT_TIMEOUT_MS
+                );
+
+                console.log(
+                    "[Queue] Electron will-download event fired:",
+                    downloadedPath
+                );
+
+            }
+            catch (err) {
+
+                console.error(
+                    "[Queue] will-download event did not fire:",
+                    err
+                );
+
+                setProject(prev =>
+                    updateCurrentJobs(prev, tabJobs =>
+                        tabJobs.map((job, index) =>
+                            index === i
+                                ? { ...job, status: "error" }
+                                : job
+                        )
+                    )
+                );
+
+                break;
+
+            }
+
+            // =================================================================
+            // 완료 처리 (imagePath 반영은 다음 단계에서 구현 예정)
             // =================================================================
 
             setProject(prev =>
