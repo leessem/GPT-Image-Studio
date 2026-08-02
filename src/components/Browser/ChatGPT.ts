@@ -217,31 +217,92 @@ export function buildClickDownloadButtonScript() {
   return `
 (() => {
 
+  // Download/Save 컨트롤은 ChatGPT UI 언어에 따라 라벨이 달라진다
+  // (한국어: "저장", 영어: "Download"). 언어에 의존하지 않도록
+  // data-testid -> aria-label -> button role -> svg 아이콘 -> 텍스트
+  // 순으로 후보를 찾는다.
+
+  const DATA_TESTID_CANDIDATES = ["download", "save"];
+  const ARIA_LABEL_CANDIDATES = ["저장", "download"];
+  const ICON_HREF_CANDIDATES = ["1a3695"];
+  const TEXT_CANDIDATES = ["저장", "download"];
+
   const dialog = document.querySelector('div[role="dialog"]') || document;
 
-  const candidates = Array.from(
-    dialog.querySelectorAll("button, a[href]")
+  const elements = Array.from(
+    dialog.querySelectorAll('button, a[href], [role="button"]')
   );
 
-  const downloadButton = candidates.find(el => {
+  const candidates = elements.map(el => ({
+    el,
+    testId: el.getAttribute("data-testid"),
+    ariaLabel: el.getAttribute("aria-label"),
+    role: el.getAttribute("role") || el.tagName.toLowerCase(),
+    iconHref: el.querySelector("svg use")?.getAttribute("href") || null,
+    text: (el.textContent || "").trim(),
+  }));
 
-    const label = (
-      el.getAttribute("aria-label") ||
-      el.getAttribute("title") ||
-      el.textContent ||
-      ""
-    ).toLowerCase();
+  console.log(
+    "[ChatGPT] download button candidates:",
+    JSON.stringify(candidates.map(c => ({
+      testId: c.testId,
+      ariaLabel: c.ariaLabel,
+      role: c.role,
+      iconHref: c.iconHref,
+      text: c.text.slice(0, 30),
+    })))
+  );
 
-    return label.includes("download");
+  // 1. data-testid
+  let downloadButton = candidates.find(c =>
+    c.testId &&
+    DATA_TESTID_CANDIDATES.some(k => c.testId.toLowerCase().includes(k))
+  )?.el;
 
-  });
+  let matchedBy = downloadButton ? "data-testid" : null;
+
+  // 2. aria-label (한국어 + 영어)
+  if (!downloadButton) {
+    const match = candidates.find(c =>
+      c.ariaLabel &&
+      ARIA_LABEL_CANDIDATES.some(
+        k => c.ariaLabel === k || c.ariaLabel.toLowerCase().includes(k.toLowerCase())
+      )
+    );
+    downloadButton = match?.el;
+    matchedBy = downloadButton ? "aria-label" : null;
+  }
+
+  // 3. button role (버튼/role="button" 요소로 한정 - 이후 fallback의 오탐 방지용)
+  const roleFiltered = candidates.filter(
+    c => c.role === "button"
+  );
+
+  // 4. svg 아이콘 (실제 DOM 조사로 확인된 아이콘 스프라이트 fragment)
+  if (!downloadButton) {
+    const match = roleFiltered.find(c =>
+      c.iconHref &&
+      ICON_HREF_CANDIDATES.some(k => c.iconHref.includes(k))
+    );
+    downloadButton = match?.el;
+    matchedBy = downloadButton ? "svg-icon" : null;
+  }
+
+  // 5. 텍스트 (마지막 fallback, 한국어 + 영어)
+  if (!downloadButton) {
+    const match = roleFiltered.find(c =>
+      TEXT_CANDIDATES.some(k => c.text.toLowerCase().includes(k.toLowerCase()))
+    );
+    downloadButton = match?.el;
+    matchedBy = downloadButton ? "text" : null;
+  }
 
   if (!downloadButton) {
     console.error("[ChatGPT] download button not found");
     return { success: false, reason: "download button not found" };
   }
 
-  console.log("[ChatGPT] download button found");
+  console.log("[ChatGPT] download button found (matched by: " + matchedBy + ")");
 
   downloadButton.click();
 
