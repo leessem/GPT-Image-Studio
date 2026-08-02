@@ -74,13 +74,15 @@ export function buildPromptScript(prompt: string) {
 `;
 }
 
+const GENERATED_IMAGE_SELECTOR = 'img[src*="/backend-api/estuary/content"]';
+
 export function buildWaitImageScript() {
   return `
 (() => {
 
   return new Promise((resolve) => {
 
-    const selector = 'img[src*="/backend-api/estuary/content"]';
+    const selector = ${JSON.stringify(GENERATED_IMAGE_SELECTOR)};
 
     const startCount = document.querySelectorAll(selector).length;
 
@@ -89,14 +91,7 @@ export function buildWaitImageScript() {
       const images = Array.from(document.querySelectorAll(selector));
 
       if (images.length > startCount) {
-
-        const image = images[images.length - 1];
-
-        resolve({
-          success: true,
-          src: image.src
-        });
-
+        resolve({ success: true });
         return;
       }
 
@@ -112,50 +107,85 @@ export function buildWaitImageScript() {
 `;
 }
 
-export function buildReadImageScript(imageUrl: string) {
+export function buildOpenImageViewerScript() {
   return `
-(async () => {
+(() => {
 
-  try {
+  const selector = ${JSON.stringify(GENERATED_IMAGE_SELECTOR)};
 
-    const response = await fetch(${JSON.stringify(imageUrl)}, {
-      credentials: "include"
-    });
+  const images = Array.from(document.querySelectorAll(selector));
 
-    if (!response.ok) {
-      return {
-        success: false,
-        reason: "fetch failed : " + response.status
-      };
-    }
-
-    const blob = await response.blob();
-
-    const base64 = await new Promise((resolve, reject) => {
-
-      const reader = new FileReader();
-
-      reader.onload = () => resolve(reader.result);
-
-      reader.onerror = reject;
-
-      reader.readAsDataURL(blob);
-
-    });
-
-    return {
-      success: true,
-      data: base64
-    };
-
-  } catch (e) {
-
-    return {
-      success: false,
-      reason: String(e)
-    };
-
+  if (images.length === 0) {
+    return { success: false, reason: "generated image not found" };
   }
+
+  const image = images[images.length - 1];
+
+  image.click();
+
+  return { success: true };
+
+})();
+`;
+}
+
+export function buildWaitImageViewerScript() {
+  return `
+(() => {
+
+  return new Promise((resolve) => {
+
+    const check = () => {
+
+      const dialog = document.querySelector('div[role="dialog"]');
+
+      if (dialog) {
+        resolve({ success: true });
+        return;
+      }
+
+      setTimeout(check, 300);
+
+    };
+
+    check();
+
+  });
+
+})();
+`;
+}
+
+export function buildClickDownloadButtonScript() {
+  return `
+(() => {
+
+  const dialog = document.querySelector('div[role="dialog"]') || document;
+
+  const candidates = Array.from(
+    dialog.querySelectorAll("button, a[href]")
+  );
+
+  const downloadButton = candidates.find(el => {
+
+    const label = (
+      el.getAttribute("aria-label") ||
+      el.getAttribute("title") ||
+      el.textContent ||
+      ""
+    ).toLowerCase();
+
+    return label.includes("download");
+
+  });
+
+  if (!downloadButton) {
+    return { success: false, reason: "download button not found" };
+  }
+
+  downloadButton.click();
+
+  return { success: true };
 
 })();
 `;

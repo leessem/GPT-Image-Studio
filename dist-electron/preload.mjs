@@ -45,12 +45,23 @@ electron.contextBridge.exposeInMainWorld("ipcRenderer", {
   // Image API
   // ==========================
   image: {
-    save(dataUrl, fileName) {
-      return electron.ipcRenderer.invoke(
-        "image:save",
-        dataUrl,
-        fileName
-      );
+    armDownload(jobId) {
+      electron.ipcRenderer.sendSync("image:armDownload", jobId);
+    },
+    waitForDownload(jobId) {
+      return new Promise((resolve, reject) => {
+        const handler = (_event, payload) => {
+          if (payload.jobId !== jobId)
+            return;
+          electron.ipcRenderer.off("image:downloaded", handler);
+          if (payload.filePath) {
+            resolve(payload.filePath);
+          } else {
+            reject(new Error("Download failed for job " + jobId));
+          }
+        };
+        electron.ipcRenderer.on("image:downloaded", handler);
+      });
     }
   }
 });

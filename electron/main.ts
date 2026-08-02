@@ -36,6 +36,8 @@ const generatedImagesDir = path.join(
   "GPT Image Studio"
 );
 
+let pendingDownloadJobId: string | null = null;
+
 app.on("second-instance", () => {
   if (win) {
     if (win.isMinimized()) win.restore();
@@ -87,41 +89,35 @@ app.whenReady().then(() => {
   }
 
   session.defaultSession.on("will-download", (_event, item) => {
-    const fileName =
-      Date.now() + path.extname(item.getFilename());
+    const jobId = pendingDownloadJobId;
 
-    item.setSavePath(path.join(generatedImagesDir, fileName));
+    pendingDownloadJobId = null;
 
-    item.on("done", (_, state) => {
-      console.log("Download:", state);
+    const ext = path.extname(item.getFilename()) || ".png";
+
+    const fileName = `${jobId ?? "image"}-${Date.now()}${ext}`;
+
+    const filePath = path.join(generatedImagesDir, fileName);
+
+    item.setSavePath(filePath);
+
+    item.once("done", (_, state) => {
+      win?.webContents.send("image:downloaded", {
+        jobId,
+        filePath: state === "completed" ? filePath : null
+      });
     });
   });
 
   // ===============================
-  // Generated Image Save
+  // Generated Image Download
   // ===============================
 
-  ipcMain.handle(
-    "image:save",
-    async (_, dataUrl: string, fileName: string) => {
-      const match = /^data:image\/(\w+);base64,(.+)$/.exec(dataUrl);
+  ipcMain.on("image:armDownload", (event, jobId: string) => {
+    pendingDownloadJobId = jobId;
 
-      if (!match) {
-        return null;
-      }
-
-      const [, ext, base64] = match;
-
-      const filePath = path.join(
-        generatedImagesDir,
-        `${fileName}-${Date.now()}.${ext}`
-      );
-
-      fs.writeFileSync(filePath, Buffer.from(base64, "base64"));
-
-      return filePath;
-    }
-  );
+    event.returnValue = true;
+  });
 
   // ===============================
   // Project Open

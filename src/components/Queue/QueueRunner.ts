@@ -7,12 +7,35 @@ import { BrowserHandle } from "../Browser/Browser";
 import {
     buildPromptScript,
     buildWaitImageScript,
-    buildReadImageScript,
+    buildOpenImageViewerScript,
+    buildWaitImageViewerScript,
+    buildClickDownloadButtonScript,
 } from "../Browser/ChatGPT";
 import {
     getCurrentJobs,
     updateCurrentJobs,
 } from "../../services/JobService";
+
+const DOWNLOAD_TIMEOUT_MS = 30000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+
+    return Promise.race([
+
+        promise,
+
+        new Promise<T>((_, reject) => {
+
+            setTimeout(
+                () => reject(new Error("download timed out")),
+                ms
+            );
+
+        }),
+
+    ]);
+
+}
 
 export interface QueueRunnerOptions {
 
@@ -129,29 +152,50 @@ export async function runQueue({
 
                 buildWaitImageScript()
 
-            ) as { success: boolean; src?: string };
+            ) as { success: boolean };
 
             // =================================================================
             // 이미지 다운로드
+            // (이미지 클릭 -> 뷰어 오픈 대기 -> 다운로드 버튼 클릭 ->
+            //  will-download 캡처)
             // =================================================================
 
             let imagePath: string | undefined;
 
-            if (waitResult?.success && waitResult.src) {
+            if (waitResult?.success) {
 
-                const readResult = await browser.execute(
+                await browser.execute(
+                    buildOpenImageViewerScript()
+                );
 
-                    buildReadImageScript(waitResult.src)
+                await browser.execute(
+                    buildWaitImageViewerScript()
+                );
 
-                ) as { success: boolean; data?: string };
+                window.ipcRenderer.image.armDownload(
+                    currentJob.id
+                );
 
-                if (readResult?.success && readResult.data) {
+                const downloadPromise =
+                    window.ipcRenderer.image.waitForDownload(
+                        currentJob.id
+                    );
 
-                    imagePath =
-                        (await window.ipcRenderer.image.save(
-                            readResult.data,
-                            currentJob.id
-                        )) ?? undefined;
+                await browser.execute(
+                    buildClickDownloadButtonScript()
+                );
+
+                try {
+
+                    imagePath = await withTimeout(
+                        downloadPromise,
+                        DOWNLOAD_TIMEOUT_MS
+                    );
+
+                }
+                catch (err) {
+
+                    console.error(err);
 
                 }
 

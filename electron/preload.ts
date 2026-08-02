@@ -60,12 +60,30 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
   // ==========================
 
   image: {
-    save(dataUrl: string, fileName: string) {
-      return ipcRenderer.invoke(
-        "image:save",
-        dataUrl,
-        fileName
-      );
+    armDownload(jobId: string) {
+      ipcRenderer.sendSync("image:armDownload", jobId);
+    },
+
+    waitForDownload(jobId: string) {
+      return new Promise<string>((resolve, reject) => {
+        const handler = (
+          _event: Electron.IpcRendererEvent,
+          payload: { jobId: string | null; filePath: string | null }
+        ) => {
+          if (payload.jobId !== jobId)
+            return;
+
+          ipcRenderer.off("image:downloaded", handler);
+
+          if (payload.filePath) {
+            resolve(payload.filePath);
+          } else {
+            reject(new Error("Download failed for job " + jobId));
+          }
+        };
+
+        ipcRenderer.on("image:downloaded", handler);
+      });
     }
   }
 });
@@ -92,10 +110,9 @@ declare global {
       };
 
       image: {
-        save(
-          dataUrl: string,
-          fileName: string
-        ): Promise<string | null>;
+        armDownload(jobId: string): void;
+
+        waitForDownload(jobId: string): Promise<string>;
       };
     };
   }

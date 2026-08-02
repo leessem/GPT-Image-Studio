@@ -20,6 +20,7 @@ const generatedImagesDir = path.join(
   app.getPath("downloads"),
   "GPT Image Studio"
 );
+let pendingDownloadJobId = null;
 app.on("second-instance", () => {
   if (win) {
     if (win.isMinimized()) win.restore();
@@ -60,28 +61,23 @@ app.whenReady().then(() => {
     fs.mkdirSync(generatedImagesDir, { recursive: true });
   }
   session.defaultSession.on("will-download", (_event, item) => {
-    const fileName = Date.now() + path.extname(item.getFilename());
-    item.setSavePath(path.join(generatedImagesDir, fileName));
-    item.on("done", (_, state) => {
-      console.log("Download:", state);
+    const jobId = pendingDownloadJobId;
+    pendingDownloadJobId = null;
+    const ext = path.extname(item.getFilename()) || ".png";
+    const fileName = `${jobId ?? "image"}-${Date.now()}${ext}`;
+    const filePath = path.join(generatedImagesDir, fileName);
+    item.setSavePath(filePath);
+    item.once("done", (_, state) => {
+      win == null ? void 0 : win.webContents.send("image:downloaded", {
+        jobId,
+        filePath: state === "completed" ? filePath : null
+      });
     });
   });
-  ipcMain.handle(
-    "image:save",
-    async (_, dataUrl, fileName) => {
-      const match = /^data:image\/(\w+);base64,(.+)$/.exec(dataUrl);
-      if (!match) {
-        return null;
-      }
-      const [, ext, base64] = match;
-      const filePath = path.join(
-        generatedImagesDir,
-        `${fileName}-${Date.now()}.${ext}`
-      );
-      fs.writeFileSync(filePath, Buffer.from(base64, "base64"));
-      return filePath;
-    }
-  );
+  ipcMain.on("image:armDownload", (event, jobId) => {
+    pendingDownloadJobId = jobId;
+    event.returnValue = true;
+  });
   ipcMain.handle("project:open", async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openFile"],
