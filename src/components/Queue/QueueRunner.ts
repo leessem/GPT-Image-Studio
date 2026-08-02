@@ -73,6 +73,8 @@ export async function runQueue({
 
 }: QueueRunnerOptions) {
 
+    console.log("[Queue] QueueRunner started");
+
     onStart?.();
 
     try {
@@ -85,6 +87,11 @@ export async function runQueue({
                 break;
 
             const currentJob = jobs[i];
+
+            console.log("[Queue] Job loaded", {
+                id: currentJob.id,
+                prompt: currentJob.prompt,
+            });
 
             // =================================================================
             // 상태 변경
@@ -134,7 +141,9 @@ export async function runQueue({
             // Prompt 입력
             // =================================================================
 
-            await browser.execute(
+            console.log("[Queue] Prompt script injected");
+
+            const promptResult = await browser.execute(
 
                 buildPromptScript(
 
@@ -142,7 +151,64 @@ export async function runQueue({
 
                 )
 
-            );
+            ) as { success: boolean; step?: string; reason?: string } | undefined;
+
+            if (!promptResult) {
+
+                console.error(
+                    "[Queue] Prompt automation aborted: browser.execute() returned no result (webview not ready?)"
+                );
+
+                setProject(prev =>
+                    updateCurrentJobs(prev, tabJobs =>
+                        tabJobs.map((job, index) =>
+                            index === i
+                                ? { ...job, status: "error" }
+                                : job
+                        )
+                    )
+                );
+
+                break;
+
+            }
+
+            if (promptResult.step && promptResult.step !== "textarea-not-found") {
+                console.log("[Queue] Prompt textarea found");
+            }
+
+            if (
+                promptResult.success ||
+                promptResult.step === "send-button-not-found"
+            ) {
+                console.log("[Queue] Prompt inserted");
+            }
+
+            if (promptResult.success) {
+                console.log("[Queue] Send button clicked");
+            }
+
+            if (!promptResult.success) {
+
+                console.error(
+                    `[Queue] Prompt automation failed at step "${promptResult.step}": ${promptResult.reason}`
+                );
+
+                setProject(prev =>
+                    updateCurrentJobs(prev, tabJobs =>
+                        tabJobs.map((job, index) =>
+                            index === i
+                                ? { ...job, status: "error" }
+                                : job
+                        )
+                    )
+                );
+
+                break;
+
+            }
+
+            console.log("[Queue] Waiting for generation");
 
             // =================================================================
             // 이미지 생성 대기

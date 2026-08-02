@@ -2,24 +2,32 @@ export function buildPromptScript(prompt: string) {
   return `
 (() => {
 
+  console.log("[ChatGPT] buildPromptScript executing");
+
   const text = ${JSON.stringify(prompt)};
 
   const editor = document.querySelector("#prompt-textarea");
 
   if (!editor) {
+    console.error("[ChatGPT] #prompt-textarea not found");
     return {
       success: false,
+      step: "textarea-not-found",
       reason: "prompt-textarea not found"
     };
   }
+
+  console.log("[ChatGPT] #prompt-textarea found");
 
   editor.focus();
 
   const selection = window.getSelection();
 
   if (!selection) {
+    console.error("[ChatGPT] window.getSelection() returned null");
     return {
       success: false,
+      step: "selection-not-found",
       reason: "selection not found"
     };
   }
@@ -55,19 +63,26 @@ export function buildPromptScript(prompt: string) {
     data: text
   }));
 
+  console.log("[ChatGPT] prompt text inserted into editor");
+
   const sendButton = document.querySelector("#composer-submit-button");
 
   if (!sendButton) {
+    console.error("[ChatGPT] #composer-submit-button not found");
     return {
       success: false,
+      step: "send-button-not-found",
       reason: "send button not found"
     };
   }
 
   sendButton.click();
 
+  console.log("[ChatGPT] send button clicked");
+
   return {
-    success: true
+    success: true,
+    step: "send-clicked"
   };
 
 })();

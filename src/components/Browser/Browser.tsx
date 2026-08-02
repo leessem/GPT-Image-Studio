@@ -18,8 +18,20 @@ const Browser = forwardRef<BrowserHandle>((_, ref) => {
 
   useImperativeHandle(ref, () => ({
     async execute(script: string) {
-      if (!webviewRef.current) return;
-      return await webviewRef.current.executeJavaScript(script);
+      if (!webviewRef.current) {
+        console.error(
+          "[Queue] browser.execute() aborted: webview is not mounted yet"
+        );
+        return undefined;
+      }
+
+      console.log("[Queue] browser.execute() injecting script into webview");
+
+      const result = await webviewRef.current.executeJavaScript(script);
+
+      console.log("[Queue] browser.execute() returned", result);
+
+      return result;
     },
 
     reload() {

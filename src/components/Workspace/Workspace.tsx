@@ -95,11 +95,17 @@ export default function Workspace() {
 
     const startQueue = async () => {
 
-        if (!browserRef.current)
-            return;
+        console.log("[Queue] Start Queue clicked");
 
-        if (running)
+        if (!browserRef.current) {
+            console.error("[Queue] Aborted: browser ref not ready");
             return;
+        }
+
+        if (running) {
+            console.warn("[Queue] Aborted: queue already running");
+            return;
+        }
 
         stopRef.current = false;
 
