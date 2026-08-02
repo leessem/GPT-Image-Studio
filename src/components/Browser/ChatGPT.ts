@@ -86,44 +86,179 @@ export function buildPromptScript(prompt: string) {
 ${buildInsertPromptTextSnippet(prompt)}
   return new Promise((resolve) => {
 
-    const timeoutMs = 5000;
-    const pollMs = 100;
-    const startedAt = Date.now();
+    // Clicking send does not always register - if it fires in the same
+    // tick as the just-dispatched input event, it races ahead of React
+    // processing that event and the click is a silent no-op (confirmed
+    // via network monitoring: the click reaches "conversation/prepare"
+    // but never follows through to the real send). A fixed delay before
+    // clicking does not reliably fix this (verified: still flaky). So
+    // instead of guessing a delay, click, then poll for an OBSERVABLE
+    // sign that ChatGPT actually accepted the message, and retry the
+    // click (bounded) if none appears in time.
 
-    const checkSendButton = () => {
+    const composerSelector = "#prompt-textarea";
+    const sendButtonSelector = "#composer-submit-button";
+    const userMessageSelector = '[data-message-author-role="user"]';
+    const assistantMessageSelector = '[data-message-author-role="assistant"]';
 
-      const sendButton = document.querySelector("#composer-submit-button");
+    const maxAttempts = 5;
+    const buttonWaitMs = 5000;
+    const acceptWaitMs = 3000;
+    const pollMs = 50;
 
-      if (sendButton) {
+    const baselineUserMessageCount =
+      document.querySelectorAll(userMessageSelector).length;
 
-        sendButton.click();
+    const baselineAssistantMessageCount =
+      document.querySelectorAll(assistantMessageSelector).length;
 
-        console.log("[ChatGPT] send button clicked");
+    const isGeneratingState = () => {
 
-        resolve({
-          success: true,
-          step: "send-clicked"
-        });
+      const sendButton = document.querySelector(sendButtonSelector);
 
-        return;
-
-      }
-
-      if (Date.now() - startedAt > timeoutMs) {
-        console.error("[ChatGPT] #composer-submit-button not found");
-        resolve({
-          success: false,
-          step: "send-button-not-found",
-          reason: "send button not found"
-        });
-        return;
-      }
-
-      setTimeout(checkSendButton, pollMs);
+      return !!(
+        sendButton &&
+        (
+          sendButton.getAttribute("data-testid") === "stop-button" ||
+          (sendButton.getAttribute("aria-label") || "").includes("중지") ||
+          (sendButton.getAttribute("aria-label") || "").toLowerCase().includes("stop")
+        )
+      );
 
     };
 
-    checkSendButton();
+    // The previous job's generation can still be finishing (button still
+    // showing "stop/generating") when this job's send happens. Checking
+    // "is it generating right now" would then be true even though it has
+    // nothing to do with THIS message, giving a false positive. Track the
+    // observed state across polls and only accept on an actual
+    // not-generating -> generating transition.
+    let lastObservedGeneratingState = isGeneratingState();
+
+    // Checked in the required priority order; returns the first signal
+    // that confirms ChatGPT accepted the message, or null if none yet.
+    const checkAccepted = () => {
+
+      const editor = document.querySelector(composerSelector);
+
+      if (editor && editor.innerText.trim() === "") {
+        return "textarea-empty";
+      }
+
+      if (
+        document.querySelectorAll(userMessageSelector).length >
+        baselineUserMessageCount
+      ) {
+        return "user-message-count-increased";
+      }
+
+      if (
+        document.querySelectorAll(assistantMessageSelector).length >
+        baselineAssistantMessageCount
+      ) {
+        return "assistant-generation-started";
+      }
+
+      const currentGeneratingState = isGeneratingState();
+
+      const becameGenerating =
+        !lastObservedGeneratingState && currentGeneratingState;
+
+      lastObservedGeneratingState = currentGeneratingState;
+
+      if (becameGenerating) {
+        return "send-button-generating-state";
+      }
+
+      return null;
+
+    };
+
+    let attempt = 0;
+
+    const attemptSend = () => {
+
+      attempt++;
+
+      console.log("[ChatGPT] send attempt " + attempt + "/" + maxAttempts);
+
+      const buttonWaitStartedAt = Date.now();
+
+      const waitForButton = () => {
+
+        const sendButton = document.querySelector(sendButtonSelector);
+
+        if (!sendButton) {
+
+          if (Date.now() - buttonWaitStartedAt > buttonWaitMs) {
+            console.error("[ChatGPT] #composer-submit-button not found (attempt " + attempt + ")");
+            resolve({
+              success: false,
+              step: "send-button-not-found",
+              reason: "send button not found"
+            });
+            return;
+          }
+
+          setTimeout(waitForButton, pollMs);
+          return;
+
+        }
+
+        sendButton.click();
+
+        console.log("[ChatGPT] send button clicked (attempt " + attempt + ")");
+
+        const acceptWaitStartedAt = Date.now();
+
+        const waitForAcceptance = () => {
+
+          const acceptedBy = checkAccepted();
+
+          if (acceptedBy) {
+            console.log("[ChatGPT] message accepted (" + acceptedBy + ")");
+            resolve({
+              success: true,
+              step: "send-clicked",
+              acceptedBy
+            });
+            return;
+          }
+
+          if (Date.now() - acceptWaitStartedAt > acceptWaitMs) {
+
+            console.error(
+              "[ChatGPT] send attempt " + attempt + " not accepted within " + acceptWaitMs + "ms"
+            );
+
+            if (attempt >= maxAttempts) {
+              console.error("[ChatGPT] message not accepted after " + attempt + " attempts");
+              resolve({
+                success: false,
+                step: "send-not-accepted",
+                reason: "message was not accepted by ChatGPT after " + attempt + " attempts"
+              });
+              return;
+            }
+
+            attemptSend();
+            return;
+
+          }
+
+          setTimeout(waitForAcceptance, pollMs);
+
+        };
+
+        waitForAcceptance();
+
+      };
+
+      waitForButton();
+
+    };
+
+    attemptSend();
 
   });
 
@@ -309,6 +444,129 @@ export function buildClickDownloadButtonScript() {
   console.log("[ChatGPT] download button clicked");
 
   return { success: true };
+
+})();
+`;
+}
+
+export function buildCloseImageViewerScript() {
+  return `
+(() => {
+
+  return new Promise((resolve) => {
+
+    const timeoutMs = 5000;
+    const pollMs = 100;
+    const startedAt = Date.now();
+
+    const finish = (result) => {
+
+      if (result.success) {
+        console.log("[ChatGPT] image viewer closed, composer active again");
+      } else {
+        console.error("[ChatGPT] " + result.reason);
+      }
+
+      resolve(result);
+
+    };
+
+    // Dispatching an Escape keydown was tried first, but it also
+    // reaches ChatGPT's own global shortcut handling and triggers a
+    // "stop conversation" call that breaks the next send - confirmed
+    // via network monitoring (a stray POST /backend-api/
+    // stop_conversation fired right after Escape, and the following
+    // message's send never got past the "prepare" step). Click the
+    // dialog's own close control instead - same language-independent
+    // matching approach as the download button (data-testid ->
+    // aria-label -> button role -> svg icon -> text).
+    const dialog = document.querySelector('div[role="dialog"]');
+
+    if (dialog) {
+
+      const CLOSE_ARIA_LABEL_CANDIDATES = ["전체 화면 닫기", "닫기", "close"];
+      const CLOSE_ICON_HREF_CANDIDATES = ["85f94b"];
+
+      const elements = Array.from(
+        dialog.querySelectorAll('button, [role="button"]')
+      );
+
+      const candidates = elements.map(el => ({
+        el,
+        ariaLabel: el.getAttribute("aria-label"),
+        role: el.getAttribute("role") || el.tagName.toLowerCase(),
+        iconHref: el.querySelector("svg use")?.getAttribute("href") || null,
+      }));
+
+      let closeButton = candidates.find(c =>
+        c.ariaLabel &&
+        CLOSE_ARIA_LABEL_CANDIDATES.some(
+          k => c.ariaLabel === k || c.ariaLabel.toLowerCase().includes(k.toLowerCase())
+        )
+      )?.el;
+
+      if (!closeButton) {
+        closeButton = candidates.find(c =>
+          c.role === "button" &&
+          c.iconHref &&
+          CLOSE_ICON_HREF_CANDIDATES.some(k => c.iconHref.includes(k))
+        )?.el;
+      }
+
+      if (closeButton) {
+        closeButton.click();
+      } else {
+        console.error("[ChatGPT] viewer close button not found, falling back to Escape");
+        dialog.dispatchEvent(new KeyboardEvent("keydown", {
+          key: "Escape",
+          code: "Escape",
+          keyCode: 27,
+          bubbles: true,
+          cancelable: true,
+        }));
+      }
+
+    }
+
+    const check = () => {
+
+      const stillOpen = document.querySelector(
+        'div[role="dialog"][data-state="open"]'
+      );
+
+      if (stillOpen) {
+
+        if (Date.now() - startedAt > timeoutMs) {
+          finish({ success: false, reason: "image viewer did not close" });
+          return;
+        }
+
+        setTimeout(check, pollMs);
+        return;
+
+      }
+
+      const editor = document.querySelector("#prompt-textarea");
+
+      if (!editor) {
+        finish({ success: false, reason: "prompt textarea not found after closing viewer" });
+        return;
+      }
+
+      editor.focus();
+
+      if (document.activeElement !== editor) {
+        finish({ success: false, reason: "prompt textarea did not become active" });
+        return;
+      }
+
+      finish({ success: true });
+
+    };
+
+    check();
+
+  });
 
 })();
 `;

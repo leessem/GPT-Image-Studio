@@ -10,6 +10,7 @@ import {
     buildOpenImageViewerScript,
     buildWaitImageViewerScript,
     buildClickDownloadButtonScript,
+    buildCloseImageViewerScript,
 } from "../Browser/ChatGPT";
 import {
     getCurrentJobs,
@@ -156,7 +157,7 @@ export async function runQueue({
 
                 )
 
-            ) as { success: boolean; step?: string; reason?: string } | undefined;
+            ) as { success: boolean; step?: string; reason?: string; acceptedBy?: string } | undefined;
 
             if (!promptResult) {
 
@@ -184,13 +185,16 @@ export async function runQueue({
 
             if (
                 promptResult.success ||
-                promptResult.step === "send-button-not-found"
+                promptResult.step === "send-button-not-found" ||
+                promptResult.step === "send-not-accepted"
             ) {
                 console.log("[Queue] Prompt inserted");
             }
 
             if (promptResult.success) {
-                console.log("[Queue] Send button clicked");
+                console.log(
+                    `[Queue] Send button clicked (message accepted: ${promptResult.acceptedBy})`
+                );
             }
 
             if (!promptResult.success) {
@@ -396,6 +400,40 @@ export async function runQueue({
                 break;
 
             }
+
+            // =================================================================
+            // 뷰어 닫기 + 텍스트 입력창 활성화 확인
+            // (다음 큐 항목으로 넘어가기 전 반드시 완료되어야 함)
+            // =================================================================
+
+            const closeViewerResult = await browser.execute(
+
+                buildCloseImageViewerScript()
+
+            ) as { success: boolean; reason?: string } | undefined;
+
+            if (!closeViewerResult?.success) {
+
+                console.error(
+                    `[Queue] Failed to close image viewer: ${closeViewerResult?.reason ?? "no result"}`
+                );
+
+                setProject(prev =>
+                    updateCurrentJobs(prev, tabJobs =>
+                        tabJobs.map((job, index) =>
+                            index === i
+                                ? { ...job, status: "error" }
+                                : job
+                        )
+                    )
+                );
+
+                break;
+
+            }
+
+            console.log("[Queue] Image viewer closed");
+            console.log("[Queue] Prompt textarea active again");
 
             // =================================================================
             // 완료 처리 (imagePath 반영은 다음 단계에서 구현 예정)
