@@ -124,8 +124,12 @@ export function switchTab(
 
 /**
  * 새 작업 생성
+ *
+ * Job-first workflow: a freshly created Job starts with no prompt text -
+ * that is filled in later via setJobPrompt() when the user selects a
+ * template from the Prompt Library.
  */
-export function createJob(prompt = "New Prompt"): Job {
+export function createJob(prompt = ""): Job {
 
     return {
 
@@ -233,6 +237,68 @@ export function editJob(
                     ? {
                           ...job,
                           prompt,
+                      }
+                    : job
+            )
+    );
+
+}
+
+/**
+ * Job-first: assigns a Job the prompt text copied from a Prompt Library
+ * template, plus the template's id (for display/re-selection only -
+ * QueueRunner only ever reads `prompt`, never `selectedPromptId`).
+ */
+export function setJobPrompt(
+
+    project: Project,
+
+    id: string,
+
+    promptId: string,
+
+    promptText: string
+
+): Project {
+
+    return updateCurrentJobs(
+        project,
+        jobs =>
+            jobs.map(job =>
+                job.id === id
+                    ? {
+                          ...job,
+                          prompt: promptText,
+                          selectedPromptId: promptId,
+                      }
+                    : job
+            )
+    );
+
+}
+
+/**
+ * Job-first: attaches (or clears, when uploadedImagePath is undefined) the
+ * reference image a Job owns.
+ */
+export function setJobUploadedImage(
+
+    project: Project,
+
+    id: string,
+
+    uploadedImagePath: string | undefined
+
+): Project {
+
+    return updateCurrentJobs(
+        project,
+        jobs =>
+            jobs.map(job =>
+                job.id === id
+                    ? {
+                          ...job,
+                          uploadedImagePath,
                       }
                     : job
             )

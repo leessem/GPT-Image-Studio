@@ -1,22 +1,29 @@
 // ============================================================================
 // File : src/components/Workspace/Workspace.tsx
-// PART 1 / 2 시작
+//
+// Job-first architecture: Job is the primary object. Each Job owns its
+// own uploaded image, selected prompt, status and result - JobList/
+// JobDetail are the primary UI, Prompt is now template management only.
 // ============================================================================
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
+import type { SetStateAction } from "react";
 
-import Browser, { BrowserHandle } from "../Browser/Browser";
+import Browser, { BrowserHandle, CHATGPT_HOME_URL } from "../Browser/Browser";
 import Prompt from "../Prompt/Prompt";
 import Toolbar from "../Toolbar/Toolbar";
-import ImageDrop from "../ImageDrop/ImageDrop";
+import JobList from "../Job/JobList";
+import JobDetail from "../Job/JobDetail";
 import JobTabs from "./JobTabs";
 
 import { Project, createProject } from "../../types/Project";
+import { PromptDraft, PromptItem } from "../../types/Prompt";
 
 import { defaultJobs } from "../data/defaultJobs";
 
 import { runQueue } from "../Queue/QueueRunner";
-import { buildInsertPromptScript } from "../Browser/ChatGPT";
+
+import PromptStore from "../../store/Promptstore";
 
 import {
     loadProject,
@@ -25,13 +32,16 @@ import {
 } from "../../utils/ProjectStorage";
 
 import {
-    addJob,
+    createJob,
     deleteJob,
-    editJob,
+    setJobPrompt,
+    setJobUploadedImage,
     addTab,
     deleteTab,
     switchTab,
+    getCurrentTab,
     getCurrentJobs,
+    updateCurrentJobs,
 } from "../../services/JobService";
 
 import "./Workspace.css";
@@ -59,7 +69,9 @@ function buildDefaultProject(): Project {
 export default function Workspace() {
 
     // ========================================================================
-    // Browser
+    // Browser (one shared webview/partition/login for every Job - a Job's
+    // independence comes from its own conversationUrl, not a separate
+    // browser profile)
     // ========================================================================
 
     const browserRef = useRef<BrowserHandle>(null);
@@ -80,6 +92,70 @@ export default function Workspace() {
         loadProject(buildDefaultProject())
     );
 
+    const jobs = getCurrentJobs(project);
+
+    // Mirrors `project` for the job-switch navigation effect below, so that
+    // effect can depend on selectedJobId alone (not on project, which
+    // changes constantly during generation) while still reading fresh data.
+    const projectRef = useRef(project);
+
+    useEffect(() => {
+
+        projectRef.current = project;
+
+    }, [project]);
+
+    // ========================================================================
+    // Job selection (primary object under the Job-first architecture)
+    // ========================================================================
+
+    const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+
+    const selectedJob = selectedJobId
+        ? jobs.find(job => job.id === selectedJobId) ?? null
+        : null;
+
+    // Switching to a Job restores its own ChatGPT conversation (or starts a
+    // fresh one if it doesn't have one yet) in the one shared webview. Keyed
+    // only on selectedJobId - reads the latest job data via projectRef so it
+    // never re-navigates just because some other project state changed.
+    useEffect(() => {
+
+        if (!browserRef.current || !selectedJobId)
+            return;
+
+        const job = getCurrentJobs(projectRef.current).find(
+            j => j.id === selectedJobId
+        );
+
+        browserRef.current.loadURL(job?.conversationUrl ?? CHATGPT_HOME_URL);
+
+    }, [selectedJobId]);
+
+    // ========================================================================
+    // Prompt Library selection
+    //
+    // PromptStore is the single source of truth for prompt data - Workspace
+    // only keeps track of which prompt id is selected, never a copy of its
+    // title/prompt/negativePrompt content.
+    // ========================================================================
+
+    const [selectedPromptId, setSelectedPromptId] = useState<string | null>(
+        null
+    );
+
+    // PromptStore is the source of truth for prompt content - this is just
+    // a rendering cache kept in lockstep with it, re-synced immediately
+    // after every mutation (create/update/remove) since the plain
+    // singleton store can't trigger a React re-render on its own.
+    const [prompts, setPrompts] = useState<PromptItem[]>(() =>
+        PromptStore.getAll()
+    );
+
+    const selectedPrompt = selectedPromptId
+        ? prompts.find(item => item.id === selectedPromptId) ?? null
+        : null;
+
     // ========================================================================
     // Auto Save
     // ========================================================================
@@ -91,7 +167,7 @@ export default function Workspace() {
     }, [project]);
 
     // ========================================================================
-    // Queue Start
+    // Queue Start (tab-wide bulk run - unchanged automation, unchanged path)
     // ========================================================================
 
     const startQueue = async () => {
@@ -143,6 +219,101 @@ export default function Workspace() {
     };
 
     // ========================================================================
+    // Generate a single Job (Job-first "Generate" step)
+    //
+    // Runs the exact same, unmodified runQueue()/QueueRunner through a
+    // scoped one-job "view" of the project, then merges the result back
+    // onto the real job by id. QueueRunner/ChatGPT.ts are untouched.
+    // ========================================================================
+
+    const onGenerateJob = async (jobId: string) => {
+
+        console.log("[Queue] Generate clicked for job", jobId);
+
+        if (!browserRef.current) {
+            console.error("[Queue] Aborted: browser ref not ready");
+            return;
+        }
+
+        if (running) {
+            console.warn("[Queue] Aborted: queue already running");
+            return;
+        }
+
+        const currentTab = getCurrentTab(project);
+
+        const job = currentTab.jobs.find(j => j.id === jobId);
+
+        if (!job)
+            return;
+
+        let scopedProject: Project = {
+
+            ...project,
+
+            tabs: project.tabs.map(tab =>
+                tab.id === currentTab.id
+                    ? { ...tab, jobs: [job] }
+                    : tab
+            ),
+
+        };
+
+        stopRef.current = false;
+
+        await runQueue({
+
+            browser: browserRef.current,
+
+            project: scopedProject,
+
+            stopRef,
+
+            setProject: (update: SetStateAction<Project>) => {
+
+                scopedProject =
+                    typeof update === "function"
+                        ? update(scopedProject)
+                        : update;
+
+                const scopedJob = getCurrentJobs(scopedProject)[0];
+
+                if (!scopedJob)
+                    return;
+
+                setProject(prevReal =>
+                    updateCurrentJobs(prevReal, tabJobs =>
+                        tabJobs.map(j =>
+                            j.id === scopedJob.id ? scopedJob : j
+                        )
+                    )
+                );
+
+            },
+
+            onStart: () => {
+
+                setRunning(true);
+
+            },
+
+            onFinish: () => {
+
+                setRunning(false);
+
+            },
+
+            onError: (err) => {
+
+                console.error(err);
+
+            },
+
+        });
+
+    };
+
+    // ========================================================================
     // Queue Stop
     // ========================================================================
 
@@ -153,57 +324,99 @@ export default function Workspace() {
     };
 
     // ========================================================================
-    // Job Event
+    // Job Event (Job-first: create / select / delete / upload / prompt)
     // ========================================================================
 
-    const onAdd = () => {
+    const onCreateJob = () => {
 
-        setProject(prev => addJob(prev));
+        const job = createJob();
+
+        setProject(prev =>
+            updateCurrentJobs(prev, tabJobs => [...tabJobs, job])
+        );
+
+        setSelectedJobId(job.id);
 
     };
 
-    const onDelete = (id: string) => {
+    const onSelectJob = (id: string) => {
+
+        setSelectedJobId(id);
+
+    };
+
+    const onDeleteJob = (id: string) => {
 
         setProject(prev => deleteJob(prev, id));
 
-    };
-
-    const onEdit = (
-
-        id: string,
-
-        prompt: string
-
-    ) => {
-
-        setProject(prev =>
-
-            editJob(
-
-                prev,
-
-                id,
-
-                prompt
-
-            )
-
-        );
+        setSelectedJobId(prev => (prev === id ? null : prev));
 
     };
 
-    // ========================================================================
-    // Prompt Library Selection
-    // ========================================================================
+    const onUploadJobImage = (jobId: string, dataUrl: string) => {
 
-    const onSelectPrompt = async (prompt: string) => {
+        setProject(prev => setJobUploadedImage(prev, jobId, dataUrl));
 
-        if (!browserRef.current)
+    };
+
+    const onRemoveJobImage = (jobId: string) => {
+
+        setProject(prev => setJobUploadedImage(prev, jobId, undefined));
+
+    };
+
+    const onSelectJobPrompt = (jobId: string, promptId: string) => {
+
+        const item = prompts.find(p => p.id === promptId);
+
+        if (!item)
             return;
 
-        await browserRef.current.execute(
-            buildInsertPromptScript(prompt)
-        );
+        setProject(prev => setJobPrompt(prev, jobId, promptId, item.prompt));
+
+    };
+
+    // ========================================================================
+    // Prompt Library (template management only)
+    // ========================================================================
+
+    const onSelectPrompt = (id: string) => {
+
+        setSelectedPromptId(id);
+
+    };
+
+    const onNewPrompt = () => {
+
+        setSelectedPromptId(null);
+
+    };
+
+    const onCreatePrompt = (draft: PromptDraft) => {
+
+        const created = PromptStore.create(draft);
+
+        setPrompts(PromptStore.getAll());
+
+        setSelectedPromptId(created.id);
+
+    };
+
+    const onSavePrompt = (id: string, draft: PromptDraft) => {
+
+        PromptStore.update(id, draft);
+
+        setPrompts(PromptStore.getAll());
+
+    };
+
+    const onDeletePrompt = (id: string) => {
+
+        PromptStore.remove(id);
+
+        setPrompts(PromptStore.getAll());
+
+        setSelectedPromptId(prev => (prev === id ? null : prev));
 
     };
 
@@ -261,20 +474,6 @@ export default function Workspace() {
 
     };
 
-    // =========================================================================
-    // PART 2부터 이어 붙여 넣으세요.
-    // =========================================================================
-
-// ============================================================================
-// PART 1 / 2 끝
-// ============================================================================
-
-
-// ============================================================================
-// File : src/components/Workspace/Workspace.tsx
-// PART 2 / 2 시작
-// ============================================================================
-
     return (
 
         <div className="workspace">
@@ -285,7 +484,7 @@ export default function Workspace() {
 
             <Toolbar
 
-                onNewJob={onAdd}
+                onNewJob={onCreateJob}
 
                 onGenerate={startQueue}
 
@@ -318,24 +517,47 @@ export default function Workspace() {
             <div className="workspace-body">
 
                 {/* -----------------------------------------------------------
-                    Prompt
+                    Sidebar: Job List (primary nav) + Prompt Library
+                    (template collection only)
                 ------------------------------------------------------------ */}
 
-                <Prompt
+                <div className="workspace-sidebar">
 
-                    project={project}
+                    <JobList
 
-                    onStart={startQueue}
+                        jobs={jobs}
 
-                    onAdd={onAdd}
+                        selectedJobId={selectedJobId}
 
-                    onDelete={onDelete}
+                        onSelect={onSelectJob}
 
-                    onEdit={onEdit}
+                        onCreate={onCreateJob}
 
-                    onSelectPrompt={onSelectPrompt}
+                        onDelete={onDeleteJob}
 
-                />
+                    />
+
+                    <Prompt
+
+                        prompts={prompts}
+
+                        selectedPromptId={selectedPromptId}
+
+                        selectedPrompt={selectedPrompt}
+
+                        onSelectPrompt={onSelectPrompt}
+
+                        onNewPrompt={onNewPrompt}
+
+                        onCreatePrompt={onCreatePrompt}
+
+                        onSavePrompt={onSavePrompt}
+
+                        onDeletePrompt={onDeletePrompt}
+
+                    />
+
+                </div>
 
                 {/* -----------------------------------------------------------
                     Browser
@@ -348,17 +570,25 @@ export default function Workspace() {
                 />
 
                 {/* -----------------------------------------------------------
-                    Image Panel
+                    Job Detail: upload image, select prompt, generate,
+                    status, result - all scoped to the selected Job
                 ------------------------------------------------------------ */}
 
-                <ImageDrop
+                <JobDetail
 
-                    generatedImages={getCurrentJobs(project)
-                        .filter(job => job.imagePath)
-                        .map(job => ({
-                            id: job.id,
-                            path: job.imagePath as string,
-                        }))}
+                    job={selectedJob}
+
+                    prompts={prompts}
+
+                    running={running}
+
+                    onUploadImage={onUploadJobImage}
+
+                    onRemoveImage={onRemoveJobImage}
+
+                    onSelectPrompt={onSelectJobPrompt}
+
+                    onGenerate={onGenerateJob}
 
                 />
 
@@ -392,5 +622,4 @@ export default function Workspace() {
 
 // ============================================================================
 // File End
-// PART 2 / 2 끝
 // ============================================================================

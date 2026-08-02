@@ -10,8 +10,19 @@
 .workspace-body{
     flex:1;
     display:grid;
-    grid-template-columns:320px 1fr 300px;
+    grid-template-columns:300px 1fr 340px;
     overflow:hidden;
+}
+
+.workspace-sidebar{
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+}
+
+.workspace-sidebar > *{
+    flex:1;
+    overflow:auto;
 }
 
 /* ============================================================================

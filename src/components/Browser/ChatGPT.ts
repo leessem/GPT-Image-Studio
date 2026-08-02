@@ -647,3 +647,291 @@ export function buildCloseImageViewerScript() {
 })();
 `;
 }
+
+// ============================================================================
+// P0-2: Image Upload Integration
+//
+// There is no CDP access from inside executeJavaScript, so a file input's
+// .files can't be set directly (browsers block that for security). Instead
+// this rebuilds the exact uploaded image (the same data: URL shown in the
+// Job's own "Uploaded Image" preview - never a re-encoded copy) into a real
+// File, wraps it in a DataTransfer, and dispatches a drag-and-drop sequence
+// at the composer - the same mechanism a user dragging a file in would
+// trigger. Selectors here are a best-effort, generic heuristic (never
+// live-verified against chatgpt.com's actual DOM the way the download
+// button selectors were) - see WORKLOG.
+// ============================================================================
+
+/**
+ * Shared diagnostic snapshot embedded in the upload scripts below - gives
+ * enough DOM state to actually diagnose a failure (not just "it failed").
+ */
+function buildDomSnapshotSnippet() {
+  return `
+  const domSnapshot = () => {
+    const editor = document.querySelector("#prompt-textarea");
+    const composerForm = editor ? (editor.closest("form") || editor.parentElement) : null;
+    return {
+      hasComposer: !!editor,
+      composerTag: composerForm ? composerForm.tagName : null,
+      composerHTML: composerForm ? composerForm.outerHTML.slice(0, 1500) : null,
+      imgCountInComposer: composerForm ? composerForm.querySelectorAll("img").length : 0,
+      fileInputCount: document.querySelectorAll('input[type="file"]').length,
+      fileInputs: Array.from(document.querySelectorAll('input[type="file"]')).map(el => ({
+        id: el.id,
+        name: el.name,
+        accept: el.accept,
+        hidden: el.hidden,
+      })),
+      currentUrl: location.href,
+    };
+  };
+`;
+}
+
+export function buildUploadImageScript(dataUrl: string, fileName = "upload.png") {
+  return `
+(() => {
+
+  return (async () => {
+${buildDomSnapshotSnippet()}
+    try {
+
+      const dataUrl = ${JSON.stringify(dataUrl)};
+      const fileName = ${JSON.stringify(fileName)};
+
+      console.log("[ChatGPT] [Step 3/10] Locating upload target (composer form)");
+
+      const editor = document.querySelector("#prompt-textarea");
+
+      const dropTarget = editor ? (editor.closest("form") || editor) : null;
+
+      if (!dropTarget) {
+
+        const snapshot = domSnapshot();
+
+        console.error("[ChatGPT] [Step 3/10] FAILED - upload target not found", {
+          selector: "#prompt-textarea -> closest('form')",
+          domSnapshot: snapshot
+        });
+
+        return {
+          success: false,
+          step: 3,
+          stepName: "upload-control-found",
+          selector: "#prompt-textarea -> closest('form')",
+          domSnapshot: snapshot,
+          reason: "composer/drop target not found in DOM"
+        };
+
+      }
+
+      console.log("[ChatGPT] [Step 3/10] OK - drop target found", {
+        selector: "#prompt-textarea -> closest('form')",
+        tag: dropTarget.tagName,
+        id: dropTarget.id,
+        className: dropTarget.className
+      });
+
+      console.log("[ChatGPT] [Step 4/10] Building File + DataTransfer from uploaded image");
+
+      let file;
+
+      try {
+
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        file = new File([blob], fileName, { type: blob.type || "image/png" });
+
+      }
+      catch (fetchErr) {
+
+        const snapshot = domSnapshot();
+
+        console.error("[ChatGPT] [Step 4/10] FAILED - could not build File from data URL", {
+          selector: "fetch(dataUrl)",
+          domSnapshot: snapshot,
+          reason: String(fetchErr)
+        });
+
+        return {
+          success: false,
+          step: 4,
+          stepName: "image-injected",
+          selector: "fetch(dataUrl)",
+          domSnapshot: snapshot,
+          reason: "fetch(dataUrl) threw: " + String(fetchErr)
+        };
+
+      }
+
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+
+      const dispatchDragEvent = (type, target) => {
+        const event = new DragEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer
+        });
+        target.dispatchEvent(event);
+      };
+
+      dispatchDragEvent("dragenter", dropTarget);
+      dispatchDragEvent("dragover", dropTarget);
+      dispatchDragEvent("drop", dropTarget);
+
+      console.log("[ChatGPT] [Step 4/10] OK - drag/drop sequence dispatched", {
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type
+      });
+
+      return { success: true, step: 4, stepName: "image-injected" };
+
+    }
+    catch (err) {
+
+      const snapshot = domSnapshot();
+
+      console.error("[ChatGPT] [Step 4/10] FAILED - unexpected error", {
+        domSnapshot: snapshot,
+        reason: String(err)
+      });
+
+      return {
+        success: false,
+        step: 4,
+        stepName: "image-injected",
+        domSnapshot: snapshot,
+        reason: String(err)
+      };
+
+    }
+
+  })();
+
+})();
+`;
+}
+
+export function buildWaitUploadScript() {
+  return `
+(() => {
+${buildDomSnapshotSnippet()}
+  return new Promise((resolve) => {
+
+    const timeoutMs = 20000;
+    const pollMs = 200;
+    const startedAt = Date.now();
+
+    const scope = () => {
+      const editor = document.querySelector("#prompt-textarea");
+      return editor ? (editor.closest("form") || editor.parentElement) : document;
+    };
+
+    const baselineImageCount = scope().querySelectorAll("img").length;
+
+    console.log("[ChatGPT] [Step 5/10] Waiting for upload preview thumbnail", {
+      selector: "img (within composer form/parent)",
+      baselineImageCount
+    });
+
+    const check = () => {
+
+      const currentImageCount = scope().querySelectorAll("img").length;
+
+      if (currentImageCount > baselineImageCount) {
+
+        console.log("[ChatGPT] [Step 5/10] OK - upload preview detected", {
+          currentImageCount
+        });
+
+        console.log("[ChatGPT] [Step 6/10] OK - upload completed");
+
+        resolve({ success: true, step: 6, stepName: "upload-completed" });
+
+        return;
+
+      }
+
+      if (Date.now() - startedAt > timeoutMs) {
+
+        const snapshot = domSnapshot();
+
+        console.error("[ChatGPT] [Step 5/10] FAILED - upload preview not detected within timeout", {
+          selector: "img (within composer form/parent)",
+          domSnapshot: snapshot
+        });
+
+        resolve({
+          success: false,
+          step: 5,
+          stepName: "upload-preview-detected",
+          selector: "img (within composer form/parent)",
+          domSnapshot: snapshot,
+          reason: "upload thumbnail not detected within timeout"
+        });
+
+        return;
+
+      }
+
+      setTimeout(check, pollMs);
+
+    };
+
+    check();
+
+  });
+
+})();
+`;
+}
+
+// ============================================================================
+// P0 correction: Job independence now comes from navigating the one shared
+// webview to a Job's own conversation URL (see QueueRunner's "Activate Job"
+// step), not from a separate browser profile per Job. That navigation is a
+// real page load, so - unlike every other step here, which always ran on an
+// already-settled page - the composer isn't guaranteed to exist yet the
+// instant navigation resolves. This just waits for it before anything else
+// runs.
+// ============================================================================
+
+export function buildWaitComposerReadyScript() {
+  return `
+(() => {
+
+  return new Promise((resolve) => {
+
+    const timeoutMs = 15000;
+    const pollMs = 200;
+    const startedAt = Date.now();
+
+    const check = () => {
+
+      if (document.querySelector("#prompt-textarea")) {
+        resolve({ success: true });
+        return;
+      }
+
+      if (Date.now() - startedAt > timeoutMs) {
+        resolve({
+          success: false,
+          reason: "composer not ready within timeout"
+        });
+        return;
+      }
+
+      setTimeout(check, pollMs);
+
+    };
+
+    check();
+
+  });
+
+})();
+`;
+}

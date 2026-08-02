@@ -1,173 +1,85 @@
 // ============================================================================
 // File : src/components/Prompt/Prompt.tsx
+//
+// Job-first architecture: the Prompt Library is only a reusable template
+// collection now (Create/Edit/Delete/Save templates). It no longer owns
+// or displays the Job queue - that moved to JobList/JobDetail.
 // ============================================================================
 
 import "./Prompt.css";
 
-import { Project } from "../../types/Project";
-import { getCurrentJobs } from "../../services/JobService";
+import { PromptDraft, PromptItem } from "../../types/Prompt";
+
+import PromptLibrary from "./PromptLibrary";
+import PromptEditor from "./PromptEditor";
 
 interface PromptProps {
 
-    project: Project;
+    prompts: PromptItem[];
 
-    onStart: () => void;
+    selectedPromptId: string | null;
 
-    onAdd: () => void;
+    selectedPrompt: PromptItem | null;
 
-    onDelete: (id: string) => void;
+    onSelectPrompt: (id: string) => void;
 
-    onEdit: (id: string, prompt: string) => void;
+    onNewPrompt: () => void;
 
-    onSelectPrompt: (prompt: string) => void;
+    onCreatePrompt: (draft: PromptDraft) => void;
+
+    onSavePrompt: (id: string, draft: PromptDraft) => void;
+
+    onDeletePrompt: (id: string) => void;
 
 }
 
 export default function Prompt({
 
-    project,
+    prompts,
 
-    onStart,
+    selectedPromptId,
 
-    onAdd,
-
-    onDelete,
-
-    onEdit,
+    selectedPrompt,
 
     onSelectPrompt,
 
-}: PromptProps) {
+    onNewPrompt,
 
-    const jobs = getCurrentJobs(project);
+    onCreatePrompt,
+
+    onSavePrompt,
+
+    onDeletePrompt,
+
+}: PromptProps) {
 
     return (
 
         <div className="prompt-panel">
 
-            <div className="prompt-header">
+            <PromptLibrary
 
-                Prompt Library
+                prompts={prompts}
 
-            </div>
+                selectedId={selectedPromptId}
 
-            <div className="prompt-search">
+                onSelect={onSelectPrompt}
 
-                <input
+            />
 
-                    placeholder="Search..."
+            <PromptEditor
 
-                />
+                selectedPrompt={selectedPrompt}
 
-            </div>
+                onNew={onNewPrompt}
 
-            <div className="prompt-list">
+                onCreate={onCreatePrompt}
 
-                {jobs.map(job => (
+                onSave={onSavePrompt}
 
-                    <div
+                onDelete={onDeletePrompt}
 
-                        key={job.id}
-
-                        className={`prompt-item ${job.status}`}
-
-                        onClick={() =>
-
-                            onSelectPrompt(job.prompt)
-
-                        }
-
-                    >
-
-                        <span>
-
-                            {job.status === "waiting" && "○"}
-
-                            {job.status === "running" && "▶"}
-
-                            {job.status === "done" && "✔"}
-
-                            {job.status === "error" && "✖"}
-
-                        </span>
-
-                        <input
-
-                            className="prompt-text"
-
-                            value={job.prompt}
-
-                            onChange={e =>
-
-                                onEdit(
-
-                                    job.id,
-
-                                    e.target.value
-
-                                )
-
-                            }
-
-                        />
-
-                        <button
-
-                            className="prompt-delete"
-
-                            onClick={e => {
-
-                                e.stopPropagation();
-
-                                onDelete(job.id);
-
-                            }}
-
-                        >
-
-                            ✕
-
-                        </button>
-
-                    </div>
-
-                ))}
-
-            </div>
-
-            <div
-
-                style={{
-
-                    display: "flex",
-
-                    gap: 8,
-
-                }}
-
-            >
-
-                <button
-
-                    onClick={onAdd}
-
-                >
-
-                    Add
-
-                </button>
-
-                <button
-
-                    onClick={onStart}
-
-                >
-
-                    Start Queue
-
-                </button>
-
-            </div>
+            />
 
         </div>
 

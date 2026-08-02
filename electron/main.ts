@@ -21,6 +21,13 @@ app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("disable-gpu-compositing");
 
+// Single flag controlling DevTools availability for both the main window
+// and the ChatGPT <webview>. DevTools are never opened automatically
+// regardless of this flag - when true it only makes manual opening
+// (e.g. the default F12 / Ctrl+Shift+I shortcut) possible; when false
+// (the default) DevTools cannot be opened at all.
+const DEVTOOLS_ENABLED = process.env.DEVTOOLS_ENABLED === "true";
+
 export const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 export const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
@@ -45,6 +52,14 @@ app.on("second-instance", () => {
   }
 });
 
+// Gates DevTools availability for the ChatGPT <webview> guest the same
+// way `devTools` below gates it for the main window's own webContents.
+app.on("web-contents-created", (_event, contents) => {
+  contents.on("will-attach-webview", (_event, webPreferences) => {
+    webPreferences.devTools = DEVTOOLS_ENABLED;
+  });
+});
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1800,
@@ -62,7 +77,8 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: true,
-      sandbox: true
+      sandbox: true,
+      devTools: DEVTOOLS_ENABLED
     }
   });
 
@@ -71,8 +87,6 @@ function createWindow() {
   } else {
     win.loadFile(path.join(RENDERER_DIST, "index.html"));
   }
-
-  win.webContents.openDevTools();
 
   win.webContents.setWindowOpenHandler(() => ({
     action: "deny"

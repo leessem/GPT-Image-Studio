@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { Project } from "../../types/Project";
-import { BrowserHandle } from "../Browser/Browser";
+import { BrowserHandle, CHATGPT_HOME_URL } from "../Browser/Browser";
 import {
     buildPromptScript,
     buildWaitImageScript,
@@ -11,6 +11,9 @@ import {
     buildWaitImageViewerScript,
     buildClickDownloadButtonScript,
     buildCloseImageViewerScript,
+    buildUploadImageScript,
+    buildWaitUploadScript,
+    buildWaitComposerReadyScript,
 } from "../Browser/ChatGPT";
 import {
     getCurrentJobs,
@@ -19,6 +22,7 @@ import {
 
 const VIEWER_TIMEOUT_MS = 15000;
 const DOWNLOAD_EVENT_TIMEOUT_MS = 15000;
+const CONVERSATION_URL_TIMEOUT_MS = 8000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
@@ -36,6 +40,34 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
         }),
 
     ]);
+
+}
+
+/**
+ * Polls the shared webview's current URL until ChatGPT has routed to a real
+ * conversation (contains "/c/"), so this Job's own conversationUrl can be
+ * captured right after its first successful send.
+ */
+async function waitForConversationUrl(
+    browser: BrowserHandle,
+    timeoutMs = CONVERSATION_URL_TIMEOUT_MS
+): Promise<string | null> {
+
+    const pollMs = 200;
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+
+        const url = browser.getCurrentUrl();
+
+        if (/\/c\//.test(url))
+            return url;
+
+        await new Promise(resolve => setTimeout(resolve, pollMs));
+
+    }
+
+    return null;
 
 }
 
@@ -144,10 +176,152 @@ export async function runQueue({
             );
 
             // =================================================================
-            // Prompt 입력
+            // 1. Activate Job: navigate the one shared webview/session to
+            //    this Job's own conversation (or CHATGPT_HOME_URL to start a
+            //    fresh one when it doesn't have one yet). One login/session
+            //    is shared by every Job - independence comes from routing
+            //    to a different conversation, not a different browser.
             // =================================================================
 
-            console.log("[Queue] Prompt script injected");
+            const targetUrl = currentJob.conversationUrl ?? CHATGPT_HOME_URL;
+
+            console.log(
+                `[Pipeline] Step 1/10: Job activated (job ${currentJob.id}, navigating to ${targetUrl})`
+            );
+
+            await browser.loadURL(targetUrl);
+
+            const composerReady = await browser.execute(
+
+                buildWaitComposerReadyScript()
+
+            ) as { success: boolean; reason?: string } | undefined;
+
+            if (!composerReady?.success) {
+
+                console.error(
+                    "[Pipeline] Step 2/10: FAILED - ChatGPT composer ready",
+                    {
+                        selector: "#prompt-textarea",
+                        reason: composerReady?.reason ?? "no result",
+                    }
+                );
+
+                setProject(prev =>
+                    updateCurrentJobs(prev, tabJobs =>
+                        tabJobs.map((job, index) =>
+                            index === i
+                                ? { ...job, status: "error" }
+                                : job
+                        )
+                    )
+                );
+
+                break;
+
+            }
+
+            console.log("[Pipeline] Step 2/10: OK - ChatGPT composer ready");
+
+            // =================================================================
+            // 2-3. Upload Job image into ChatGPT, then wait until it
+            //    completes (P0-2 - optional, only when this Job has one;
+            //    skipped entirely when uploadedImagePath is not set)
+            // =================================================================
+
+            if (currentJob.uploadedImagePath) {
+
+                const uploadResult = await browser.execute(
+
+                    buildUploadImageScript(currentJob.uploadedImagePath)
+
+                ) as {
+                    success: boolean;
+                    step?: number;
+                    stepName?: string;
+                    selector?: string;
+                    domSnapshot?: unknown;
+                    reason?: string;
+                } | undefined;
+
+                if (!uploadResult?.success) {
+
+                    console.error(
+                        `[Pipeline] Step ${uploadResult?.step ?? "3-4"}/10: FAILED - ${uploadResult?.stepName ?? "upload"}`,
+                        {
+                            selector: uploadResult?.selector,
+                            domSnapshot: uploadResult?.domSnapshot,
+                            reason: uploadResult?.reason ?? "no result",
+                        }
+                    );
+
+                    setProject(prev =>
+                        updateCurrentJobs(prev, tabJobs =>
+                            tabJobs.map((job, index) =>
+                                index === i
+                                    ? { ...job, status: "error" }
+                                    : job
+                            )
+                        )
+                    );
+
+                    break;
+
+                }
+
+                console.log(
+                    "[Pipeline] Step 4/10: OK - image injected, waiting for upload to complete"
+                );
+
+                const uploadWaitResult = await browser.execute(
+
+                    buildWaitUploadScript()
+
+                ) as {
+                    success: boolean;
+                    step?: number;
+                    stepName?: string;
+                    selector?: string;
+                    domSnapshot?: unknown;
+                    reason?: string;
+                } | undefined;
+
+                if (!uploadWaitResult?.success) {
+
+                    console.error(
+                        `[Pipeline] Step ${uploadWaitResult?.step ?? 5}/10: FAILED - ${uploadWaitResult?.stepName ?? "upload-preview-detected"}`,
+                        {
+                            selector: uploadWaitResult?.selector,
+                            domSnapshot: uploadWaitResult?.domSnapshot,
+                            reason: uploadWaitResult?.reason ?? "no result",
+                        }
+                    );
+
+                    setProject(prev =>
+                        updateCurrentJobs(prev, tabJobs =>
+                            tabJobs.map((job, index) =>
+                                index === i
+                                    ? { ...job, status: "error" }
+                                    : job
+                            )
+                        )
+                    );
+
+                    break;
+
+                }
+
+                console.log("[Pipeline] Step 6/10: OK - upload completed");
+
+            }
+
+            // =================================================================
+            // 4-5. Insert Prompt + Click Send (unchanged - see ChatGPT.ts)
+            // =================================================================
+
+            console.log(
+                "[Pipeline] Steps 7-9/10: inserting prompt + clicking send"
+            );
 
             const promptResult = await browser.execute(
 
@@ -162,7 +336,7 @@ export async function runQueue({
             if (!promptResult) {
 
                 console.error(
-                    "[Queue] Prompt automation aborted: browser.execute() returned no result (webview not ready?)"
+                    "[Pipeline] Steps 7-9/10: FAILED - browser.execute() returned no result (webview not ready?)"
                 );
 
                 setProject(prev =>
@@ -188,19 +362,20 @@ export async function runQueue({
                 promptResult.step === "send-button-not-found" ||
                 promptResult.step === "send-not-accepted"
             ) {
-                console.log("[Queue] Prompt inserted");
+                console.log("[Pipeline] Step 7/10: OK - Prompt inserted");
             }
 
             if (promptResult.success) {
+                console.log("[Pipeline] Step 8/10: OK - Send button enabled");
                 console.log(
-                    `[Queue] Send button clicked (message accepted: ${promptResult.acceptedBy})`
+                    `[Pipeline] Step 9/10: OK - Send clicked (message accepted: ${promptResult.acceptedBy})`
                 );
             }
 
             if (!promptResult.success) {
 
                 console.error(
-                    `[Queue] Prompt automation failed at step "${promptResult.step}": ${promptResult.reason}`
+                    `[Pipeline] Steps 7-9/10: FAILED at step "${promptResult.step}": ${promptResult.reason}`
                 );
 
                 setProject(prev =>
@@ -217,7 +392,43 @@ export async function runQueue({
 
             }
 
-            console.log("[Queue] Waiting for generation");
+            // =================================================================
+            // Capture this Job's own conversation URL, once - only needed
+            // the first time (a Job that already has one keeps reusing it).
+            // =================================================================
+
+            if (!currentJob.conversationUrl) {
+
+                const conversationUrl = await waitForConversationUrl(browser);
+
+                if (conversationUrl) {
+
+                    console.log(
+                        `[Queue] Captured conversation URL for job ${currentJob.id}: ${conversationUrl}`
+                    );
+
+                    setProject(prev =>
+                        updateCurrentJobs(prev, tabJobs =>
+                            tabJobs.map((job, index) =>
+                                index === i
+                                    ? { ...job, conversationUrl }
+                                    : job
+                            )
+                        )
+                    );
+
+                }
+                else {
+
+                    console.warn(
+                        `[Queue] Could not capture a conversation URL for job ${currentJob.id} within timeout`
+                    );
+
+                }
+
+            }
+
+            console.log("[Pipeline] Step 10/10: waiting for generation");
 
             // =================================================================
             // 이미지 생성 대기
@@ -232,7 +443,7 @@ export async function runQueue({
             if (!waitResult?.success) {
 
                 console.error(
-                    "[Queue] Image generation was not detected"
+                    "[Pipeline] Step 10/10: FAILED - image generation was not detected"
                 );
 
                 setProject(prev =>
@@ -248,6 +459,8 @@ export async function runQueue({
                 break;
 
             }
+
+            console.log("[Pipeline] Step 10/10: OK - generation detected");
 
             console.log("[Queue] Image generation detected");
 
