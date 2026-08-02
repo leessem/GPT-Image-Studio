@@ -139,3 +139,33 @@ For every implementation step:
 - Never ask to be pasted files that already exist in the repo — read
   the repository directly.
 - When finished with a step, recommend a Git commit message.
+
+
+
+## Approval Policy
+
+- Group related file edits into one operation.
+- Do not ask for approval for every individual file edit.
+- Ask for approval only before:
+  - deleting project files
+  - removing directories
+  - resetting git history
+  - force pushing
+  - running destructive shell commands
+
+
+# Development Rules
+
+- Never guess.
+- Verify every implementation.
+- One feature at a time.
+- Do not modify unrelated files.
+- Build must always pass.
+- TypeScript must always pass.
+- ESLint must always pass.
+- Verify features before committing.
+- Push every completed milestone.
+- Update WORKLOG.md after every work session.
+- Keep ROADMAP.md updated.
+
+All normal code edits, builds, tests and commits should be grouped whenever possible.

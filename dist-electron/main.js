@@ -1,106 +1,78 @@
-import { app, session, ipcMain, dialog, BrowserWindow } from "electron";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
-import fs from "node:fs";
-const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
-process.env.APP_ROOT = path.join(__dirname$1, "..");
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
-if (!gotSingleInstanceLock) {
-  app.quit();
-}
-app.disableHardwareAcceleration();
-app.commandLine.appendSwitch("disable-gpu");
-app.commandLine.appendSwitch("disable-gpu-compositing");
-const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
-const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
-const RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
-let win = null;
-const generatedImagesDir = path.join(
-  app.getPath("downloads"),
+import { app as o, session as c, ipcMain as r, dialog as g, BrowserWindow as h } from "electron";
+import { fileURLToPath as T } from "node:url";
+import i from "node:path";
+import l from "node:fs";
+const P = i.dirname(T(import.meta.url));
+process.env.APP_ROOT = i.join(P, "..");
+const v = o.requestSingleInstanceLock();
+v || o.quit();
+o.disableHardwareAcceleration();
+o.commandLine.appendSwitch("disable-gpu");
+o.commandLine.appendSwitch("disable-gpu-compositing");
+const m = process.env.VITE_DEV_SERVER_URL, b = i.join(process.env.APP_ROOT, "dist-electron"), S = i.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = m ? i.join(process.env.APP_ROOT, "public") : S;
+let n = null;
+const u = i.join(
+  o.getPath("downloads"),
   "GPT Image Studio"
 );
-let pendingDownloadJobId = null;
-app.on("second-instance", () => {
-  if (win) {
-    if (win.isMinimized()) win.restore();
-    win.focus();
-  }
+let p = null;
+o.on("second-instance", () => {
+  n && (n.isMinimized() && n.restore(), n.focus());
 });
-function createWindow() {
-  win = new BrowserWindow({
+function _() {
+  n = new h({
     width: 1800,
     height: 1100,
     minWidth: 1400,
     minHeight: 900,
     title: "GPT Image Studio Pro",
-    autoHideMenuBar: true,
+    autoHideMenuBar: !0,
     webPreferences: {
-      preload: path.join(__dirname$1, "preload.mjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      webviewTag: true,
-      sandbox: true
+      preload: i.join(P, "preload.mjs"),
+      contextIsolation: !0,
+      nodeIntegration: !1,
+      webviewTag: !0,
+      sandbox: !0
     }
-  });
-  if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL);
-  } else {
-    win.loadFile(path.join(RENDERER_DIST, "index.html"));
-  }
-  win.webContents.openDevTools();
-  win.webContents.setWindowOpenHandler(() => ({
+  }), m ? n.loadURL(m) : n.loadFile(i.join(S, "index.html")), n.webContents.openDevTools(), n.webContents.setWindowOpenHandler(() => ({
     action: "deny"
   }));
 }
-app.whenReady().then(() => {
-  session.defaultSession.setUserAgent(
-    session.defaultSession.getUserAgent()
-  );
-  if (!fs.existsSync(generatedImagesDir)) {
-    fs.mkdirSync(generatedImagesDir, { recursive: true });
-  }
-  const handleWillDownload = (_event, item) => {
-    const jobId = pendingDownloadJobId;
-    pendingDownloadJobId = null;
-    const ext = path.extname(item.getFilename()) || ".png";
-    const fileName = `${jobId ?? "image"}-${Date.now()}${ext}`;
-    const filePath = path.join(generatedImagesDir, fileName);
-    item.setSavePath(filePath);
-    item.once("done", (_, state) => {
-      win == null ? void 0 : win.webContents.send("image:downloaded", {
-        jobId,
-        filePath: state === "completed" ? filePath : null
+o.whenReady().then(() => {
+  c.defaultSession.setUserAgent(
+    c.defaultSession.getUserAgent()
+  ), l.existsSync(u) || l.mkdirSync(u, { recursive: !0 });
+  const f = (s, e) => {
+    const t = p;
+    p = null;
+    const w = i.extname(e.getFilename()) || ".png", d = `${t ?? "image"}-${Date.now()}${w}`, a = i.join(u, d);
+    e.setSavePath(a), e.once("done", (y, I) => {
+      n == null || n.webContents.send("image:downloaded", {
+        jobId: t,
+        filePath: I === "completed" ? a : null
       });
     });
   };
-  session.defaultSession.on("will-download", handleWillDownload);
-  session.fromPartition("persist:gpt-image-studio").on("will-download", handleWillDownload);
-  ipcMain.on("image:armDownload", (event, jobId) => {
-    pendingDownloadJobId = jobId;
-    event.returnValue = true;
-  });
-  ipcMain.handle(
+  c.defaultSession.on("will-download", f), c.fromPartition("persist:gpt-image-studio").on("will-download", f), r.on("image:armDownload", (s, e) => {
+    p = e, s.returnValue = !0;
+  }), r.handle(
     "image:verifyFile",
-    async (_, filePath) => {
-      const timeoutMs = 3e3;
-      const pollMs = 100;
-      const startedAt = Date.now();
-      while (Date.now() - startedAt <= timeoutMs) {
+    async (s, e) => {
+      const d = Date.now();
+      for (; Date.now() - d <= 3e3; ) {
         try {
-          const stat = fs.statSync(filePath);
-          if (stat.size > 0) {
-            return { exists: true, size: stat.size };
-          }
+          const a = l.statSync(e);
+          if (a.size > 0)
+            return { exists: !0, size: a.size };
         } catch {
         }
-        await new Promise((resolve) => setTimeout(resolve, pollMs));
+        await new Promise((a) => setTimeout(a, 100));
       }
-      return { exists: false, size: 0 };
+      return { exists: !1, size: 0 };
     }
-  );
-  ipcMain.handle("project:open", async () => {
-    const result = await dialog.showOpenDialog({
+  ), r.handle("project:open", async () => {
+    const s = await g.showOpenDialog({
       properties: ["openFile"],
       filters: [
         {
@@ -109,20 +81,17 @@ app.whenReady().then(() => {
         }
       ]
     });
-    if (result.canceled) {
+    if (s.canceled)
       return null;
-    }
-    const filePath = result.filePaths[0];
-    const text = fs.readFileSync(filePath, "utf8");
+    const e = s.filePaths[0], t = l.readFileSync(e, "utf8");
     return {
-      path: filePath,
-      data: JSON.parse(text)
+      path: e,
+      data: JSON.parse(t)
     };
-  });
-  ipcMain.handle(
+  }), r.handle(
     "project:saveAs",
-    async (_, project) => {
-      const result = await dialog.showSaveDialog({
+    async (s, e) => {
+      const t = await g.showSaveDialog({
         filters: [
           {
             name: "GPT Image Studio Project",
@@ -130,42 +99,29 @@ app.whenReady().then(() => {
           }
         ]
       });
-      if (result.canceled || !result.filePath) {
-        return null;
-      }
-      fs.writeFileSync(
-        result.filePath,
-        JSON.stringify(project, null, 2),
+      return t.canceled || !t.filePath ? null : (l.writeFileSync(
+        t.filePath,
+        JSON.stringify(e, null, 2),
         "utf8"
-      );
-      return result.filePath;
+      ), t.filePath);
     }
-  );
-  ipcMain.handle(
+  ), r.handle(
     "project:save",
-    async (_, filePath, project) => {
-      fs.writeFileSync(
-        filePath,
-        JSON.stringify(project, null, 2),
-        "utf8"
-      );
-      return true;
-    }
-  );
-  createWindow();
+    async (s, e, t) => (l.writeFileSync(
+      e,
+      JSON.stringify(t, null, 2),
+      "utf8"
+    ), !0)
+  ), _();
 });
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+o.on("activate", () => {
+  h.getAllWindows().length === 0 && _();
 });
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+o.on("window-all-closed", () => {
+  process.platform !== "darwin" && o.quit();
 });
 export {
-  MAIN_DIST,
-  RENDERER_DIST,
-  VITE_DEV_SERVER_URL
+  b as MAIN_DIST,
+  S as RENDERER_DIST,
+  m as VITE_DEV_SERVER_URL
 };
