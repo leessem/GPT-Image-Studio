@@ -9,14 +9,13 @@ import {
     buildWaitImageScript,
     buildOpenImageViewerScript,
     buildWaitImageViewerScript,
-    buildClickDownloadButtonScript,
 } from "../Browser/ChatGPT";
 import {
     getCurrentJobs,
     updateCurrentJobs,
 } from "../../services/JobService";
 
-const DOWNLOAD_TIMEOUT_MS = 30000;
+const VIEWER_TIMEOUT_MS = 15000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
@@ -27,7 +26,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
         new Promise<T>((_, reject) => {
 
             setTimeout(
-                () => reject(new Error("download timed out")),
+                () => reject(new Error("timed out")),
                 ms
             );
 
@@ -218,57 +217,107 @@ export async function runQueue({
 
                 buildWaitImageScript()
 
-            ) as { success: boolean };
+            ) as { success: boolean } | undefined;
 
-            // =================================================================
-            // 이미지 다운로드
-            // (이미지 클릭 -> 뷰어 오픈 대기 -> 다운로드 버튼 클릭 ->
-            //  will-download 캡처)
-            // =================================================================
+            if (!waitResult?.success) {
 
-            let imagePath: string | undefined;
-
-            if (waitResult?.success) {
-
-                await browser.execute(
-                    buildOpenImageViewerScript()
+                console.error(
+                    "[Queue] Image generation was not detected"
                 );
 
-                await browser.execute(
-                    buildWaitImageViewerScript()
+                setProject(prev =>
+                    updateCurrentJobs(prev, tabJobs =>
+                        tabJobs.map((job, index) =>
+                            index === i
+                                ? { ...job, status: "error" }
+                                : job
+                        )
+                    )
                 );
 
-                window.ipcRenderer.image.armDownload(
-                    currentJob.id
-                );
-
-                const downloadPromise =
-                    window.ipcRenderer.image.waitForDownload(
-                        currentJob.id
-                    );
-
-                await browser.execute(
-                    buildClickDownloadButtonScript()
-                );
-
-                try {
-
-                    imagePath = await withTimeout(
-                        downloadPromise,
-                        DOWNLOAD_TIMEOUT_MS
-                    );
-
-                }
-                catch (err) {
-
-                    console.error(err);
-
-                }
+                break;
 
             }
 
+            console.log("[Queue] Image generation detected");
+
             // =================================================================
-            // 완료 처리
+            // 이미지 클릭
+            // =================================================================
+
+            const openViewerResult = await browser.execute(
+
+                buildOpenImageViewerScript()
+
+            ) as { success: boolean; reason?: string } | undefined;
+
+            if (!openViewerResult?.success) {
+
+                console.error(
+                    `[Queue] Failed to click generated image: ${openViewerResult?.reason ?? "no result"}`
+                );
+
+                setProject(prev =>
+                    updateCurrentJobs(prev, tabJobs =>
+                        tabJobs.map((job, index) =>
+                            index === i
+                                ? { ...job, status: "error" }
+                                : job
+                        )
+                    )
+                );
+
+                break;
+
+            }
+
+            console.log("[Queue] Generated image clicked");
+
+            // =================================================================
+            // 뷰어 오픈 대기
+            // =================================================================
+
+            let viewerResult: { success: boolean } | undefined;
+
+            try {
+
+                viewerResult = await withTimeout(
+                    browser.execute(
+                        buildWaitImageViewerScript()
+                    ) as Promise<{ success: boolean }>,
+                    VIEWER_TIMEOUT_MS
+                );
+
+            }
+            catch (err) {
+
+                console.error(
+                    "[Queue] Image viewer did not open:",
+                    err
+                );
+
+            }
+
+            if (!viewerResult?.success) {
+
+                setProject(prev =>
+                    updateCurrentJobs(prev, tabJobs =>
+                        tabJobs.map((job, index) =>
+                            index === i
+                                ? { ...job, status: "error" }
+                                : job
+                        )
+                    )
+                );
+
+                break;
+
+            }
+
+            console.log("[Queue] Image viewer opened");
+
+            // =================================================================
+            // 완료 처리 (다운로드는 다음 단계에서 구현 예정)
             // =================================================================
 
             setProject(prev =>
@@ -282,8 +331,6 @@ export async function runQueue({
                                 ...job,
 
                                 status: "done",
-
-                                imagePath: imagePath ?? job.imagePath,
 
                                 completedAt:
 
