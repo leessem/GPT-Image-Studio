@@ -89,6 +89,10 @@ export async function runQueue({
 
             const currentJob = jobs[i];
 
+            console.log(
+                `[Queue] ==== Generation ${i + 1}/${jobs.length} start ====`
+            );
+
             console.log("[Queue] Job loaded", {
                 id: currentJob.id,
                 prompt: currentJob.prompt,
@@ -419,6 +423,10 @@ export async function runQueue({
 
                     )
                 )
+            );
+
+            console.log(
+                `[Queue] ==== Generation ${i + 1}/${jobs.length} done ====`
             );
 
         }
