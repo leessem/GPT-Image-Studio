@@ -53,6 +53,20 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
         project
       );
     }
+  },
+
+  // ==========================
+  // Image API
+  // ==========================
+
+  image: {
+    save(dataUrl: string, fileName: string) {
+      return ipcRenderer.invoke(
+        "image:save",
+        dataUrl,
+        fileName
+      );
+    }
   }
 });
 
@@ -74,6 +88,13 @@ declare global {
 
         saveAs(
           project: unknown
+        ): Promise<string | null>;
+      };
+
+      image: {
+        save(
+          dataUrl: string,
+          fileName: string
         ): Promise<string | null>;
       };
     };

@@ -7,7 +7,24 @@ interface DroppedImage {
   name: string;
 }
 
-export default function ImageDrop() {
+export interface GeneratedImage {
+  id: string;
+  path: string;
+}
+
+function toFileUrl(filePath: string): string {
+
+  return "file:///" + encodeURI(filePath.replace(/\\/g, "/"));
+
+}
+
+interface ImageDropProps {
+
+  generatedImages: GeneratedImage[];
+
+}
+
+export default function ImageDrop({ generatedImages }: ImageDropProps) {
 
   const [images, setImages] = useState<DroppedImage[]>([]);
 
@@ -93,6 +110,28 @@ export default function ImageDrop() {
       <div className="image-header">
         Images
       </div>
+
+      {generatedImages.length > 0 && (
+
+        <div className="image-grid">
+
+          {generatedImages.map(image => (
+
+            <div key={image.id} className="image-thumb-wrap">
+
+              <img
+                src={toFileUrl(image.path)}
+                alt="Generated"
+                className="image-thumb"
+              />
+
+            </div>
+
+          ))}
+
+        </div>
+
+      )}
 
       <div
         className={`drop-zone ${isDragging ? "dragging" : ""}`}

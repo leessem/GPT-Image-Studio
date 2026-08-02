@@ -31,6 +31,11 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 
 let win: BrowserWindow | null = null;
 
+const generatedImagesDir = path.join(
+  app.getPath("downloads"),
+  "GPT Image Studio"
+);
+
 app.on("second-instance", () => {
   if (win) {
     if (win.isMinimized()) win.restore();
@@ -77,25 +82,46 @@ app.whenReady().then(() => {
     session.defaultSession.getUserAgent()
   );
 
-  const downloadDir = path.join(
-    app.getPath("downloads"),
-    "GPT Image Studio"
-  );
-
-  if (!fs.existsSync(downloadDir)) {
-    fs.mkdirSync(downloadDir, { recursive: true });
+  if (!fs.existsSync(generatedImagesDir)) {
+    fs.mkdirSync(generatedImagesDir, { recursive: true });
   }
 
   session.defaultSession.on("will-download", (_event, item) => {
     const fileName =
       Date.now() + path.extname(item.getFilename());
 
-    item.setSavePath(path.join(downloadDir, fileName));
+    item.setSavePath(path.join(generatedImagesDir, fileName));
 
     item.on("done", (_, state) => {
       console.log("Download:", state);
     });
   });
+
+  // ===============================
+  // Generated Image Save
+  // ===============================
+
+  ipcMain.handle(
+    "image:save",
+    async (_, dataUrl: string, fileName: string) => {
+      const match = /^data:image\/(\w+);base64,(.+)$/.exec(dataUrl);
+
+      if (!match) {
+        return null;
+      }
+
+      const [, ext, base64] = match;
+
+      const filePath = path.join(
+        generatedImagesDir,
+        `${fileName}-${Date.now()}.${ext}`
+      );
+
+      fs.writeFileSync(filePath, Buffer.from(base64, "base64"));
+
+      return filePath;
+    }
+  );
 
   // ===============================
   // Project Open

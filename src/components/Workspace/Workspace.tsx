@@ -30,6 +30,7 @@ import {
     addTab,
     deleteTab,
     switchTab,
+    getCurrentJobs,
 } from "../../services/JobService";
 
 import "./Workspace.css";
@@ -326,7 +327,16 @@ export default function Workspace() {
                     Image Panel
                 ------------------------------------------------------------ */}
 
-                <ImageDrop />
+                <ImageDrop
+
+                    generatedImages={getCurrentJobs(project)
+                        .filter(job => job.imagePath)
+                        .map(job => ({
+                            id: job.id,
+                            path: job.imagePath as string,
+                        }))}
+
+                />
 
             </div>
 

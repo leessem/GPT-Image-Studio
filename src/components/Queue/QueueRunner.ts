@@ -147,7 +147,11 @@ export async function runQueue({
 
                 if (readResult?.success && readResult.data) {
 
-                    imagePath = readResult.data;
+                    imagePath =
+                        (await window.ipcRenderer.image.save(
+                            readResult.data,
+                            currentJob.id
+                        )) ?? undefined;
 
                 }
 
