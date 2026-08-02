@@ -60,7 +60,7 @@ app.whenReady().then(() => {
   if (!fs.existsSync(generatedImagesDir)) {
     fs.mkdirSync(generatedImagesDir, { recursive: true });
   }
-  session.defaultSession.on("will-download", (_event, item) => {
+  const handleWillDownload = (_event, item) => {
     const jobId = pendingDownloadJobId;
     pendingDownloadJobId = null;
     const ext = path.extname(item.getFilename()) || ".png";
@@ -73,7 +73,9 @@ app.whenReady().then(() => {
         filePath: state === "completed" ? filePath : null
       });
     });
-  });
+  };
+  session.defaultSession.on("will-download", handleWillDownload);
+  session.fromPartition("persist:gpt-image-studio").on("will-download", handleWillDownload);
   ipcMain.on("image:armDownload", (event, jobId) => {
     pendingDownloadJobId = jobId;
     event.returnValue = true;

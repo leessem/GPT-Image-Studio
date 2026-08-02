@@ -88,7 +88,9 @@ app.whenReady().then(() => {
     fs.mkdirSync(generatedImagesDir, { recursive: true });
   }
 
-  session.defaultSession.on("will-download", (_event, item) => {
+  const handleWillDownload: Parameters<
+    Electron.Session["on"]
+  >[1] = (_event, item) => {
     const jobId = pendingDownloadJobId;
 
     pendingDownloadJobId = null;
@@ -107,7 +109,19 @@ app.whenReady().then(() => {
         filePath: state === "completed" ? filePath : null
       });
     });
-  });
+  };
+
+  // The ChatGPT <webview> runs on its own partitioned session
+  // (partition="persist:gpt-image-studio"), which is a different
+  // Session object from session.defaultSession - downloads triggered
+  // inside the webview fire "will-download" on that session, not the
+  // default one. Listen on both so downloads are captured regardless
+  // of which session actually triggers them.
+  session.defaultSession.on("will-download", handleWillDownload);
+
+  session
+    .fromPartition("persist:gpt-image-studio")
+    .on("will-download", handleWillDownload);
 
   // ===============================
   // Generated Image Download
