@@ -91,6 +91,14 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
       return ipcRenderer.invoke("settings:setFilenamePrefix", prefix);
     },
 
+    getFirstLaunchNoticeShown() {
+      return ipcRenderer.invoke("settings:getFirstLaunchNoticeShown");
+    },
+
+    markFirstLaunchNoticeShown() {
+      return ipcRenderer.invoke("settings:markFirstLaunchNoticeShown");
+    },
+
     getAppInfo() {
       return ipcRenderer.invoke("settings:getAppInfo");
     }
@@ -145,6 +153,10 @@ declare global {
         getFilenamePrefix(): Promise<string>;
 
         setFilenamePrefix(prefix: string): Promise<{ success: boolean }>;
+
+        getFirstLaunchNoticeShown(): Promise<boolean>;
+
+        markFirstLaunchNoticeShown(): Promise<{ success: boolean }>;
 
         getAppInfo(): Promise<{
           appVersion: string;

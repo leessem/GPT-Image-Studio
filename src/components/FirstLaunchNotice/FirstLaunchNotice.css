@@ -1,0 +1,69 @@
+.first-launch-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.35);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:2000;
+    animation:first-launch-fade .15s ease;
+}
+
+.first-launch-modal{
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+    width:380px;
+    max-width:90vw;
+    background:#ffffff;
+    color:#222222;
+    border:2px solid #c9cdd3;
+    border-radius:8px;
+    padding:24px;
+    box-shadow:0 8px 24px rgba(0,0,0,.12);
+    text-align:center;
+}
+
+.first-launch-title{
+    font-size:16px;
+    font-weight:700;
+}
+
+.first-launch-message{
+    margin:0;
+    font-size:13px;
+    line-height:1.5;
+    color:#222222;
+}
+
+.first-launch-created-by{
+    margin:0;
+    font-size:12px;
+    color:#666666;
+}
+
+.first-launch-actions{
+    display:flex;
+    justify-content:center;
+}
+
+.first-launch-actions button{
+    height:36px;
+    padding:0 24px;
+    border:none;
+    border-radius:8px;
+    background:#2563eb;
+    color:#ffffff;
+    font-weight:600;
+    cursor:pointer;
+    transition:background .15s ease;
+}
+
+.first-launch-actions button:hover{
+    background:#3b82f6;
+}
+
+@keyframes first-launch-fade{
+    from{ opacity:0; }
+    to{ opacity:1; }
+}

@@ -54,6 +54,7 @@ const settingsFilePath = path.join(app.getPath("userData"), "settings.json");
 interface PersistedSettings {
   downloadFolder?: string;
   filenamePrefix?: string;
+  firstLaunchNoticeShown?: boolean;
 }
 
 function loadSettings(): PersistedSettings {
@@ -349,6 +350,22 @@ app.whenReady().then(() => {
     const result = await shell.openPath(generatedImagesDir);
 
     return { success: result === "", error: result || null };
+  });
+
+  // First Launch Notice (internal-business-use / copyright notice) -
+  // must appear exactly once, ever, then never again. Persisted in the
+  // same settings.json as everything else so it survives a restart.
+  ipcMain.handle(
+    "settings:getFirstLaunchNoticeShown",
+    () => !!persistedSettings.firstLaunchNoticeShown
+  );
+
+  ipcMain.handle("settings:markFirstLaunchNoticeShown", () => {
+    persistedSettings.firstLaunchNoticeShown = true;
+
+    saveSettings(persistedSettings);
+
+    return { success: true };
   });
 
   ipcMain.handle("settings:getAppInfo", () => {

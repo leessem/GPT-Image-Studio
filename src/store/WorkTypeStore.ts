@@ -157,6 +157,19 @@ class WorkTypeStoreImpl {
 
     }
 
+    /**
+     * Settings > Maintenance > Reset Application Data - deletes every
+     * Work Type. Irreversible; the caller is responsible for
+     * confirming with the user first.
+     */
+    clear(): void {
+
+        this.items = [];
+
+        this.persist();
+
+    }
+
     setEnabled(id: string, enabled: boolean): void {
 
         this.items = this.items.map(item =>

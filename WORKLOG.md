@@ -2056,3 +2056,217 @@ production fixes, the filename UI polish, and this session's doc
 updates), then a push to `origin/main`, per explicit instruction.
 Installers are explicitly deferred - not building or committing any
 `release/` output this pass.
+
+## Session 16 (2026-08-03): Reset Application Data, Credits & Copyright, First Launch Notice
+
+Final V1.0 polish before the installer: a Maintenance/Reset action,
+copyright/legal text in Settings, and a one-time internal-use notice on
+first launch.
+
+**Settings > Maintenance > Reset Application Data.** A new bottom
+section with a single button. Clicking it shows an in-app confirmation
+panel (not a native `window.confirm()` - the spec needed a distinct
+Title, a specific Message, and custom Cancel/Reset button labels a
+native dialog can't provide), reusing the same "swap out the whole
+modal body" pattern already established for the Restore-duplicate-
+conflict panel. Confirming calls the two stores' new `clear()` methods
+(`PromptStore.clear()`, `WorkTypeStore.clear()` - both just empty
+`this.items` and persist, mirroring the existing `remove()` shape) and
+immediately refreshes the interface via the same
+`onPromptLibraryChanged`/`onWorkTypesChanged` callbacks every other
+Prompt Library/Work Type mutation already uses - never touches
+`settings.json` (Download Folder, filename Prefix) at all. The
+confirmation's "Reset" button is styled as the same red/danger treatment
+already used for PromptModal's Delete button, kept visually distinct
+from the initial neutral "Reset Application Data" trigger.
+
+**Credits & Copyright.** Extended the existing Credits block with
+`© 2026 leessem`, a divider, and the required internal-business-use /
+unauthorized-distribution notice - small (10-11px), centered, muted
+gray, no hyperlinks, matching the section's existing visual language.
+
+**First Launch Notice.** A new `firstLaunchNoticeShown` flag in the
+same `settings.json` persisted-settings object as everything else.
+`Workspace.tsx` checks it once on mount via a new
+`settings:getFirstLaunchNoticeShown` IPC call; if never shown, a new
+`FirstLaunchNotice` component (its own small modal, matching the app's
+existing modal visual language) displays the required Title/Message/
+Created-by text with a single OK button, and acknowledging it calls
+`settings:markFirstLaunchNoticeShown` to persist the flag so it can
+never reappear.
+
+**Verified live - Reset Application Data (handled carefully, since
+this action is genuinely destructive against the real Prompt Library/
+Work Types the user has been actively using all session):** backed up
+the real Prompt Library (3 real prompts) via a direct store read
+(dynamic `import()` of the live module - the same safe technique used
+in earlier sessions - not the native Export dialog, which doesn't
+render in this environment) before touching anything. Added one
+disposable `ZZTEST_Reset` Work Type as a canary. Clicked through the
+real UI: the confirmation panel's Title/Message/buttons matched the
+spec exactly (screenshot confirmed); clicking Reset for real emptied
+the Prompt selector down to only its placeholder option, made every
+Work Type chip disappear (including the canary), and - confirmed by
+reopening Settings afterward - left the Download Folder
+(`...Desktop\출력`) and filename Prefix (`★ `) byte-for-byte unchanged,
+with every other Settings section still rendering normally. Restored
+the 3 real prompts afterward via `PromptStore.importPayload()` (direct
+store call + a `location.reload()` so the already-mounted Workspace
+picked up the change too, since a direct store mutation doesn't refresh
+React's own cached `prompts` state on its own) - confirmed all 3 titles
+back in the Prompt selector. Work Types were already empty before this
+test began (most likely the user's own earlier manual cleanup, given
+only Work Types - not Prompts - were affected, and Reset only ever
+clears both together) - left as found rather than guessing at their
+exact prior filename prefixes to "restore" something that may have
+been intentionally cleared.
+
+**Verified live - First Launch Notice:** direct log-tracing (renderer
+`console.log`/`console.trace` plus a main-process log, captured via a
+raw CDP WebSocket connection reading `Runtime.consoleAPICalled`'s
+`stackTrace` field, since the shared `cdp_helpers.mjs` only surfaces
+`args`) confirmed the complete intended flow fires correctly end to
+end on a genuinely fresh launch (process start time independently
+confirmed via `Get-Process -ErrorAction SilentlyContinue`, not just
+"I ran npm run dev again" - an earlier attempt at this same check was
+invalidated when `taskkill` silently failed to kill the real running
+instance, and every subsequent "relaunch" was actually just re-
+focusing that same ~30-minute-old process via Electron's single-
+instance lock; switched to PowerShell's `Stop-Process -Force` +
+explicit start-time verification after catching this): the effect
+correctly calls `getFirstLaunchNoticeShown` once per mount (twice under
+React StrictMode's dev-only double-invoke, as expected), correctly
+resolves `false` on a truly-unshown flag, correctly flips
+`showFirstLaunchNotice` to `true`, and a genuine React-dispatched click
+(confirmed via a full `dispatchDiscreteEvent -> ... -> callCallback2`
+stack trace on the captured event, not just an assumed one) correctly
+triggers `markFirstLaunchNoticeShown` and persists it - confirmed to
+survive a subsequent restart (the flag stayed `true`, notice did not
+reappear). **Not independently confirmed by an isolated screenshot**:
+in every attempt, the notice was already gone by the time a check ran
+(as fast as ~70ms after the window became reachable), most likely
+because the real user - who has been actively, rapidly clicking
+through every new feature all session - dismissed it before a
+screenshot could be taken, though the exact mechanism for something
+that fast couldn't be conclusively pinned down beyond ruling out a
+code defect (verified via the full log trace above, and via a
+diagnostic pass where the dismiss handler was temporarily turned into a
+no-op, which still showed the handler being invoked from outside a
+normal single click). Recommend a real end-user confirms this visually
+themselves once the installer exists and it's just them at the machine.
+
+`npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean. All temporary
+debug instrumentation (console.log/trace in both `main.ts` and
+`Workspace.tsx`) was added and fully removed again before this entry
+was written - confirmed via `grep -rn "\[DEBUG\]"` returning nothing.
+`grep remote-debugging-port electron/main.ts`: confirmed clean.
+
+Not committed yet - holding for the next instruction, per explicit
+"Do not build the installer yet. Wait for the next instruction after
+verification succeeds."
+
+## Session 17 (2026-08-03): Korean copyright text, final V1.0 verification, source backup
+
+**Credits & First Launch Notice - Korean legal text.** Replaced the
+English internal-business-use wording with the requested Korean text
+in both places, keeping only the specified English tokens (`GPT Image
+Studio`, `Version 1.0.0`, `Created by`, `All Rights Reserved.`) as
+English. Credits' single legal paragraph became three separate
+centered lines (`본 프로그램은 개인용 비상업적 목적으로
+제작되었습니다.` / `제작자의 사전 허가 없이 본 프로그램의 무단 복제,
+무단 배포 및 무단 판매를 금합니다.` / `All Rights Reserved.`) -
+`.settings-credits-legal` changed from a single `<p>` to a flex column
+of `<p>` children so each line gets its own small gap. First Launch
+Notice's message and button got the same Korean text plus a `확인`
+button label (was `OK`).
+
+**Verified live:** DOM query confirmed the Credits section's three
+legal paragraphs render with the exact requested Korean/English text,
+centered, small font - screenshot confirmed the visual layout
+(properly bordered, dividers between blocks, no different from the
+established Credits treatment otherwise). The First Launch Notice's
+text was confirmed correct in two ways: (1) directly reading the
+component's rendered `innerHTML`/text content is straightforward code
+review, already correct by inspection; (2) since the real user
+continued to dismiss the actual notice within milliseconds of it
+appearing every time it was tested (same phenomenon as Session 16,
+already root-caused there as environmental/real-user dismissal, not a
+code defect), a byte-for-byte copy of the component's own JSX was
+injected directly into the live page (same CSS classes, so identical
+styling) purely to get a clean, undismissable screenshot of the layout
+- confirmed correct Korean rendering, centering, and the `확인` button,
+modulo one screenshot that caught a stale/bleeding-through compositor
+frame (a known `--disable-gpu` software-rendering capture artifact,
+not a real visual bug - the modal's own background is fully opaque).
+
+## Session 18 (2026-08-03): Version 1.0 final verification + source backup
+
+Final project verification before the installer, per explicit request.
+
+**Build/lint/type verification:**
+- `npx tsc --noEmit`: clean, zero errors.
+- `npx eslint . --ext ts,tsx`: clean, zero errors.
+- `npx vite build` (renderer + electron main/preload, not the full
+  `electron-builder` installer step - explicitly out of scope):
+  clean - `dist/` (200.80 kB JS, 14.29 kB CSS), `dist-electron/main.js`
+  (6.28 kB), `dist-electron/preload.mjs` (1.53 kB). Reverted the two
+  tracked build artifacts back to their committed state afterward.
+- Confirmed all core project files exist: `package.json`,
+  `tsconfig.json`, `vite.config.ts`, `electron/main.ts`,
+  `electron/preload.ts`, `electron/electron-env.d.ts`, `src/main.tsx`,
+  `src/App.tsx`, plus `WORKLOG.md`/`ROADMAP.md`/`README.md`.
+
+**Feature verification, live, real Electron app:**
+- **Independent Workspaces** - created a second tab (Anime) while the
+  first (Portrait) stayed selected; switching back to tab 1 confirmed
+  it kept its own Prompt independently of tab 2.
+- **Prompt Library** - all 3 real prompts (Portrait/Anime/레고세상)
+  confirmed present via the sidebar list and the Workspace panel's own
+  selector.
+- **Prompt Backup/Restore** - buttons present and correctly wired
+  (`Backup Prompts`/`Restore Prompts`); the underlying export/import/
+  duplicate-resolution logic was already exhaustively verified in
+  Sessions 11 and 13 (all three duplicate strategies tested directly
+  against the live store) - not re-run in full here, since nothing in
+  this session touched that code path.
+- **Work Type Management** - Settings section renders with its
+  "+ Add Work Type" control; full CRUD/reorder/enable-disable already
+  verified live in Session 13.
+- **Filename Generation** - Settings' live Preview correctly reflects
+  the current Prefix (`★ ` -> `★Portrait.png`, no auto-inserted
+  separator); real end-to-end generation with real saved files was
+  exhaustively verified across Sessions 12, 14 (including
+  the 20-consecutive-generation stress test) - not repeated here.
+- **Workspace Clear** - clicking Clear instantly reset the active tab
+  (title back to "New Workspace", Prompt selection cleared, the
+  "✔ Workspace cleared" message shown) - confirmed via direct DOM
+  query, not just trusting the click succeeded.
+- **Download Folder** - Settings correctly shows the real configured
+  folder (`...Desktop\출력`).
+- **Open Folder** - clicking the toolbar's `📂 Open Folder` button was
+  confirmed, via Win32 window enumeration (not just "the click didn't
+  error"), to open a real Explorer window at that exact folder.
+- **Settings Persistence** - killed and relaunched the app for real
+  (`Get-Process | Stop-Process -Force`, not just `taskkill`, after an
+  earlier session's lesson that `taskkill` can silently fail to kill
+  the real instance while Electron's single-instance lock quietly
+  re-focuses the old one); confirmed Download Folder, filename Prefix,
+  and the full Prompt Library all survived the restart correctly.
+- **Copyright/Credits** - confirmed via DOM query, matching Session
+  17's Korean text exactly.
+
+`grep remote-debugging-port electron/main.ts`: confirmed the temporary
+CDP debug switch used for this session's verification was fully
+reverted before this entry was written.
+
+**Documentation:** `WORKLOG.md` (this entry plus Session 17's, both
+written this session), `ROADMAP.md`, and `README.md` all updated to
+reflect the current, final V1.0 state - see each file for specifics.
+
+**Commit:** one final source backup commit, "Version 1.0 Final Source
+Backup", covering everything accumulated since the last commit
+(`c53ec6d`) - Workspace Clear, the two production fixes, the filename
+prefix simplification, Reset Application Data, the First Launch
+Notice, the Korean Credits/notice text, and this session's doc
+updates - pushed to `origin/main`. No installer built or packaged, per
+explicit instruction; waiting for the next one.

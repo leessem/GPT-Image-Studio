@@ -1,6 +1,6 @@
 # ROADMAP
 
-## Version 1.0 - FEATURE COMPLETE (2026-08-03)
+## Version 1.0 - VERIFIED, PENDING INSTALLER (2026-08-03)
 
 GPT Image Studio is a dedicated ChatGPT Image Generation Studio, not
 a ChatGPT/Project manager. Every feature must make image generation
@@ -217,6 +217,62 @@ helper text were rewritten to match exactly. Verified live: a real
 generation with a Work Type whose own prefix already included
 underscores produced a single underscore, not a doubled one.
 
+### Step 13: Reset Application Data, Credits & Copyright, First Launch Notice - DONE (2026-08-03, see WORKLOG Session 16)
+
+Final polish before the installer. **Settings > Maintenance** adds one
+button, **Reset Application Data**, behind an in-app confirmation panel
+(Title/Message/Cancel-Reset, matching spec exactly - not a native
+`window.confirm()`, which can't customize button labels) that clears
+only the Prompt Library and Work Type list, refreshes the interface
+immediately, and never touches Download Folder/filename Prefix/any
+other Setting. **Credits** now includes `© 2026 leessem` and the
+required internal-business-use / unauthorized-distribution notice
+(small, centered, muted, no hyperlinks). A new **First Launch Notice**
+(its own small modal) shows the internal-use notice once, ever, on
+first launch, persisted via a `firstLaunchNoticeShown` flag in the same
+`settings.json` as everything else.
+
+Verified live: backed up the real Prompt Library first (direct store
+read, not the native Export dialog), then exercised the real Reset flow
+end-to-end - confirmation panel matched the spec exactly, Reset emptied
+the Prompt selector and removed every Work Type chip (including a
+disposable canary), and Download Folder/filename Prefix were confirmed
+byte-for-byte unchanged afterward. Restored the real prompts afterward.
+The First Launch Notice's full logic (effect -> IPC -> state -> render
+-> real click -> persist -> survives restart) was confirmed correct via
+direct log-tracing including a captured stack trace proving a genuine
+React-dispatched click triggered the dismiss/persist path - but no
+isolated screenshot of the notice alone was obtained in this session
+(see Known Issues).
+
+### Step 14: Korean copyright text - DONE (2026-08-03, see WORKLOG Session 17)
+
+Replaced the Credits section's and First Launch Notice's English
+legal wording with the requested Korean text (keeping only `GPT Image
+Studio`, `Version 1.0.0`, `Created by`, and `All Rights Reserved.` in
+English), and changed the First Launch Notice's button label to `확인`.
+Credits' legal text is now three separate centered lines instead of
+one paragraph. Verified live via DOM query (exact text match) and a
+screenshot (via direct markup injection, since the live notice kept
+being dismissed within milliseconds by the actively-engaged real user
+- same as Session 16, not a defect).
+
+### Version 1.0 - final verification pass (2026-08-03, see WORKLOG Session 18)
+
+Full project verification before the installer: `tsc`/`eslint`/`vite
+build` all clean, all core project files present. Every listed feature
+re-confirmed live in a single pass: independent Workspaces, Prompt
+Library, Prompt Backup/Restore, Work Type Management, Filename
+Generation, Workspace Clear, Download Folder, Open Folder (confirmed
+via real Win32 window enumeration, not just a successful click),
+Settings Persistence (confirmed via a real, verified-clean app
+restart), and Copyright/Credits. One process lesson from this pass:
+`taskkill` can silently fail to kill the real running instance while
+Electron's single-instance lock quietly re-focuses the old one instead
+of starting fresh - switched to PowerShell's `Get-Process | Stop-Process
+-Force` plus explicit process-start-time verification for every restart
+from here on.
+
 ### Known issues (see WORKLOG for exact repro steps and diagnostic
 evidence per session)
 
@@ -240,6 +296,13 @@ evidence per session)
   same testing window, which could equally explain a single anomalous
   reading. Worth a focused, uninterrupted repro before fully trusting
   it (see WORKLOG Session 14).
+- **First Launch Notice not confirmed by an isolated screenshot.** Its
+  full logic is verified correct via direct log-tracing (see WORKLOG
+  Session 16), but the notice was already dismissed by the time every
+  automated check ran, in every attempt, most likely because the real
+  user - actively using the app throughout this session - dismissed it
+  before a screenshot could be taken. A real end-user should confirm it
+  visually once the installer exists and only they are at the machine.
 - No idle-eviction for Workspace webviews - a webview is only torn
   down when its Workspace/tab is closed; a session with many
   opened-and-abandoned tabs will hold real memory (~250-300MB per

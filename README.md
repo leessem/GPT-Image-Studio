@@ -48,11 +48,20 @@ Workspace panel (right) ->  Image upload -> Prompt select -> Work Type
 - **Settings** - Download Folder (with a dedicated toolbar Open Folder
   shortcut), Prompt Library Backup/Restore, Work Type Management, the
   filename Prefix (with a live Preview), read-only Application
-  Information, and Credits.
+  Information, Maintenance, and Credits.
+- **Maintenance > Reset Application Data** - a single confirmed action
+  that clears the Prompt Library and Work Type list back to empty (for
+  starting over from scratch). It never touches the Download Folder,
+  filename Prefix, or any other Setting, and always asks for
+  confirmation first - there is no undo.
 
 Workspace tabs and their state are **runtime-only** - closing the app
 discards every open tab. The Prompt Library, Work Type list, and
 Settings all persist across a restart.
+
+On the very first launch after installing, a one-time notice (in
+Korean - see License below) explains the terms of use; acknowledging
+it (확인) is recorded so it never appears again.
 
 See `ROADMAP.md` for the full verified feature list and `WORKLOG.md`
 for the session-by-session history of how it was built and verified.
@@ -83,3 +92,14 @@ npm run build                 # the above, plus electron-builder installer packa
 build`) needs Windows Developer Mode or admin rights on this project's
 primary dev machine - not required for local development or for
 verifying the app itself works.
+
+## License
+
+© 2026 leessem. All Rights Reserved.
+
+본 프로그램은 개인용 비상업적 목적으로 제작되었습니다. 제작자의 사전
+허가 없이 본 프로그램의 무단 복제, 무단 배포 및 무단 판매를 금합니다.
+
+(This software was created for personal, non-commercial use.
+Unauthorized copying, redistribution, or sale without the author's
+prior permission is prohibited.)

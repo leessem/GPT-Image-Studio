@@ -14,6 +14,7 @@ import Prompt from "../Prompt/Prompt";
 import Toolbar from "../Toolbar/Toolbar";
 import WorkspaceTabs from "./WorkspaceTabs";
 import WorkspacePanel from "./WorkspacePanel";
+import FirstLaunchNotice from "../FirstLaunchNotice/FirstLaunchNotice";
 
 import { type Workspace, createWorkspace } from "../../types/Workspace";
 import { PromptDraft, PromptItem } from "../../types/Prompt";
@@ -120,6 +121,33 @@ export default function Workspace() {
     );
 
     const enabledWorkTypes = workTypes.filter(workType => workType.enabled);
+
+    // ========================================================================
+    // First Launch Notice - shown exactly once, ever. Persisted in
+    // main.ts's settings.json (not this runtime-only Workspace state),
+    // so it survives a restart and never reappears once acknowledged.
+    // ========================================================================
+
+    const [showFirstLaunchNotice, setShowFirstLaunchNotice] = useState(false);
+
+    useEffect(() => {
+
+        window.ipcRenderer.settings.getFirstLaunchNoticeShown().then(shown => {
+
+            if (!shown)
+                setShowFirstLaunchNotice(true);
+
+        });
+
+    }, []);
+
+    const onAcknowledgeFirstLaunchNotice = () => {
+
+        window.ipcRenderer.settings.markFirstLaunchNoticeShown();
+
+        setShowFirstLaunchNotice(false);
+
+    };
 
     // ========================================================================
     // Generate
@@ -314,6 +342,12 @@ export default function Workspace() {
     return (
 
         <div className="workspace">
+
+            {showFirstLaunchNotice && (
+
+                <FirstLaunchNotice onAcknowledge={onAcknowledgeFirstLaunchNotice} />
+
+            )}
 
             {/* ===============================================================
                 Toolbar

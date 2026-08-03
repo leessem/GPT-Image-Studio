@@ -229,6 +229,19 @@ class PromptStoreImpl {
     }
 
     /**
+     * Settings > Maintenance > Reset Application Data - deletes every
+     * Prompt Library item. Irreversible; the caller is responsible for
+     * confirming with the user first.
+     */
+    clear(): void {
+
+        this.items = [];
+
+        this.persist();
+
+    }
+
+    /**
      * Settings > Prompt Library Backup > Export - only Title/Prompt/
      * Negative Prompt, per spec (no id/timestamps, those are re-assigned
      * fresh on import).

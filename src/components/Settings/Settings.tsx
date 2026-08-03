@@ -90,6 +90,8 @@ export default function Settings({
 
     const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
 
+    const [confirmingReset, setConfirmingReset] = useState(false);
+
     const [workTypes, setWorkTypes] = useState<WorkType[]>(
         () => WorkTypeStore.getAll()
     );
@@ -297,6 +299,31 @@ export default function Settings({
 
     };
 
+    // ========================================================================
+    // Maintenance
+    //
+    // Reset Application Data only ever touches the Prompt Library and
+    // Work Type list - never the Download Folder, filename Prefix, or
+    // any other Setting - so it can't silently undo anything else the
+    // user configured.
+    // ========================================================================
+
+    const handleResetApplicationData = () => {
+
+        PromptStore.clear();
+
+        WorkTypeStore.clear();
+
+        onPromptLibraryChanged();
+
+        refreshWorkTypes();
+
+        setConfirmingReset(false);
+
+        setStatusMessage("Application data has been reset.");
+
+    };
+
     return (
 
         <div className="settings-overlay" onClick={onClose}>
@@ -308,7 +335,38 @@ export default function Settings({
 
                 <div className="settings-title">Settings</div>
 
-                {pendingImport ? (
+                {confirmingReset ? (
+
+                    <div className="settings-section">
+
+                        <div className="settings-section-title">
+                            Reset Application Data
+                        </div>
+
+                        <p className="settings-note">
+                            This will remove all saved Prompt Library items
+                            and all Work Types. Application settings and
+                            download folder will remain unchanged.
+                        </p>
+
+                        <div className="settings-button-row">
+
+                            <button onClick={() => setConfirmingReset(false)}>
+                                Cancel
+                            </button>
+
+                            <button
+                                className="settings-reset-confirm"
+                                onClick={handleResetApplicationData}
+                            >
+                                Reset
+                            </button>
+
+                        </div>
+
+                    </div>
+
+                ) : pendingImport ? (
 
                     <div className="settings-section">
 
@@ -640,6 +698,26 @@ export default function Settings({
 
                         </div>
 
+                        {/* -------------------------------------------------
+                            6. Maintenance
+                        -------------------------------------------------- */}
+
+                        <div className="settings-section">
+
+                            <div className="settings-section-title">
+                                Maintenance
+                            </div>
+
+                            <div className="settings-button-row">
+
+                                <button onClick={() => setConfirmingReset(true)}>
+                                    Reset Application Data
+                                </button>
+
+                            </div>
+
+                        </div>
+
                     </>
 
                 )}
@@ -661,7 +739,7 @@ export default function Settings({
                 </div>
 
                 {/* -----------------------------------------------------
-                    6. Credits
+                    7. Credits & Copyright
                     ------------------------------------------------------ */}
 
                 <div className="settings-credits">
@@ -673,6 +751,23 @@ export default function Settings({
                     <div>Created by</div>
 
                     <div>leessem</div>
+
+                    <div>© 2026 leessem</div>
+
+                    <div className="settings-credits-divider" />
+
+                    <div className="settings-credits-legal">
+
+                        <p>본 프로그램은 개인용 비상업적 목적으로 제작되었습니다.</p>
+
+                        <p>
+                            제작자의 사전 허가 없이 본 프로그램의 무단 복제,
+                            무단 배포 및 무단 판매를 금합니다.
+                        </p>
+
+                        <p>All Rights Reserved.</p>
+
+                    </div>
 
                 </div>
 

@@ -81,6 +81,17 @@
     background:#e5e5e5;
 }
 
+.settings-button-row button.settings-reset-confirm{
+    background:#ffffff;
+    border-color:#dc2626;
+    color:#dc2626;
+}
+
+.settings-button-row button.settings-reset-confirm:hover{
+    background:#dc2626;
+    color:#ffffff;
+}
+
 .settings-prefix-input{
     flex:1;
     border:1px solid #c9cdd3;
@@ -304,6 +315,27 @@
     font-size:11px;
     color:#999999;
     text-align:center;
+}
+
+.settings-credits-divider{
+    width:100%;
+    max-width:220px;
+    height:1px;
+    background:#b8bdc5;
+    margin:8px 0;
+}
+
+.settings-credits-legal{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    font-size:10px;
+    line-height:1.5;
+    color:#999999;
+}
+
+.settings-credits-legal p{
+    margin:0;
 }
 
 @keyframes settings-fade{
