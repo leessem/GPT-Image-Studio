@@ -41,7 +41,7 @@ export default function WorkspaceTabs({
 
     return (
 
-        <div className="job-tabs">
+        <div className="workspace-tabs">
 
             {workspaces.map(workspace => (
 
@@ -49,7 +49,10 @@ export default function WorkspaceTabs({
 
                     key={workspace.id}
 
-                    className={`job ${workspace.id === currentWorkspaceId ? "active" : ""}`}
+                    className={
+                        "workspace-tab" +
+                        (workspace.id === currentWorkspaceId ? " active" : "")
+                    }
 
                     onClick={() => onSwitch(workspace.id)}
 
@@ -61,7 +64,7 @@ export default function WorkspaceTabs({
 
                         <button
 
-                            className="job-delete"
+                            className="workspace-tab-delete"
 
                             onClick={e => {
 
@@ -85,7 +88,7 @@ export default function WorkspaceTabs({
 
             <button
 
-                className="job-add"
+                className="workspace-tab-add"
 
                 onClick={onAdd}
 

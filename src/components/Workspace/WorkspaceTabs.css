@@ -1,4 +1,4 @@
-.job-tabs{
+.workspace-tabs{
 
     display:flex;
 
@@ -10,7 +10,13 @@
 
 }
 
-.job{
+.workspace-tab{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:8px;
 
     padding:10px 18px;
 
@@ -26,13 +32,13 @@
 
 }
 
-.job:hover{
+.workspace-tab:hover{
 
     background:#2c2c2c;
 
 }
 
-.job.active{
+.workspace-tab.active{
 
     background:#356cff;
 
@@ -40,17 +46,7 @@
 
 }
 
-.job{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:8px;
-
-}
-
-.job-delete{
+.workspace-tab-delete{
 
     background:transparent;
 
@@ -70,13 +66,13 @@
 
 }
 
-.job-delete:hover{
+.workspace-tab-delete:hover{
 
     opacity:1;
 
 }
 
-.job-add{
+.workspace-tab-add{
 
     padding:10px 16px;
 
@@ -94,7 +90,7 @@
 
 }
 
-.job-add:hover{
+.workspace-tab-add:hover{
 
     background:#2c2c2c;
 

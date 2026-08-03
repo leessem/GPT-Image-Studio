@@ -112,13 +112,13 @@ export default function WorkspacePanel({
 
     return (
 
-        <div className="job-detail">
+        <div className="workspace-panel">
 
-            <div className="job-detail-header">
+            <div className="workspace-panel-header">
 
                 <span>Workspace</span>
 
-                <span className={`job-status-badge ${workspace.status}`}>
+                <span className={`workspace-status-badge ${workspace.status}`}>
 
                     {STATUS_LABEL[workspace.status]}
 
@@ -130,9 +130,9 @@ export default function WorkspacePanel({
                 Upload Image
             ---------------------------------------------------------- */}
 
-            <div className="job-detail-section">
+            <div className="workspace-panel-section">
 
-                <div className="job-detail-section-title">
+                <div className="workspace-panel-section-title">
 
                     Image
 
@@ -140,7 +140,7 @@ export default function WorkspacePanel({
 
                 {workspace.uploadedImagePath ? (
 
-                    <div className="job-upload-preview">
+                    <div className="workspace-upload-preview">
 
                         <img src={workspace.uploadedImagePath} alt="Uploaded" />
 
@@ -157,7 +157,7 @@ export default function WorkspacePanel({
                     <div
 
                         className={
-                            "job-upload-dropzone" +
+                            "workspace-upload-dropzone" +
                             (isDragging ? " dragging" : "")
                         }
 
@@ -185,7 +185,7 @@ export default function WorkspacePanel({
 
                     accept="image/*"
 
-                    className="job-upload-input"
+                    className="workspace-upload-input"
 
                     onChange={e => addFile(e.target.files)}
 
@@ -197,9 +197,9 @@ export default function WorkspacePanel({
                 Select Prompt
             ---------------------------------------------------------- */}
 
-            <div className="job-detail-section">
+            <div className="workspace-panel-section">
 
-                <div className="job-detail-section-title">
+                <div className="workspace-panel-section-title">
 
                     Prompt
 
@@ -244,11 +244,11 @@ export default function WorkspacePanel({
                 Generate
             ---------------------------------------------------------- */}
 
-            <div className="job-detail-section">
+            <div className="workspace-panel-section">
 
                 <button
 
-                    className="job-generate-button"
+                    className="workspace-generate-button"
 
                     disabled={!workspace.prompt || running}
 

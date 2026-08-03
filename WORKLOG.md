@@ -1258,3 +1258,33 @@ untouched and still works exactly as before - it was never part of the
 - Everything else carried over from prior sessions (download-step
   flakiness, no webview idle-eviction) is unaffected by this rewrite -
   see ROADMAP for current status.
+
+### Step 5 (same session): simplify styling
+
+Renamed every `job-*` CSS class to `workspace-*` across
+`WorkspaceTabs.tsx`/`.css` and `WorkspacePanel.tsx`/`.css`
+(`workspace-tabs`, `workspace-tab`, `workspace-tab-delete`,
+`workspace-tab-add`, `workspace-panel`, `workspace-panel-header`,
+`workspace-status-badge`, `workspace-panel-section(-title)`,
+`workspace-upload-dropzone`/`-input`/`-preview`,
+`workspace-generate-button`) - purely a rename, no rule changes, except
+merging the old CSS's two separate `.job{}` blocks (one had layout
+properties, one had a duplicate selector with `display:flex` - clearly
+meant to be one block) into a single `.workspace-tab{}`. Grepped the
+whole `src/` tree afterward for any leftover `job-`/`"job"`/`'job'`
+string - zero matches.
+
+**Verified live:** `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`,
+`npx tsc && npx vite build` all clean. A real screenshot after the
+rename is visually identical to the one taken right after Steps 1-4
+(same layout, spacing, colors - confirms the rename didn't silently
+drop any styling). A functional smoke test against the *new* class
+names specifically (not just visual comparison) confirmed they're
+correctly wired: selecting "Anime" renamed the tab to "Anime", adding a
+tab brought the count to 2, the status badge read "Waiting" - all via
+`.workspace-panel-section select` / `.workspace-tab` /
+`.workspace-tab-add` / `.workspace-status-badge` selectors. `git diff
+--stat electron/main.ts` confirmed empty (temporary debug switch fully
+reverted).
+
+Both V1.0 milestones (Steps 1-4, and Step 5) are now committed.

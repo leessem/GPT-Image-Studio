@@ -27,22 +27,21 @@ Center  ChatGPT Browser (one <webview> per Workspace, shown/hidden only)
 Right   Workspace panel: Image upload -> Prompt select -> Generate -> Status
 ```
 
-### Next up - Step 5: simplify styling
+### Step 5: simplify styling - DONE (2026-08-03, see WORKLOG Session 7)
 
-Steps 1-4 of the V1.0 implementation plan (remove Job List, move
-controls into the Workspace panel, remove the Queue, rename Job
-terminology to Workspace) landed together as one verified milestone -
-see WORKLOG Session 7 for why they couldn't be meaningfully split
-further. Remaining, not yet done:
-
-- [ ] CSS class names still say `job-*` throughout (`job-tabs`, `job`,
-      `job-detail`, `job-status-badge`, ...) - components were
-      deliberately kept on the old class names during the structural
-      rewrite to minimize risk. Rename to `workspace-*` and tidy up.
-- [ ] Re-check for now-dead CSS rules (e.g., anything that only ever
-      applied to the removed Job List / Result-image section).
-- [ ] General visual tightening pass now that the layout is simpler
-      (spacing, sizing) - no functional changes.
+All `job-*` CSS class names renamed to `workspace-*` throughout
+`WorkspaceTabs`/`WorkspacePanel` (`workspace-tabs`, `workspace-tab`,
+`workspace-tab-delete`, `workspace-tab-add`, `workspace-panel`,
+`workspace-panel-header`, `workspace-status-badge`,
+`workspace-panel-section(-title)`, `workspace-upload-*`,
+`workspace-generate-button`). A duplicate `.job{}` CSS block from the
+old file (two separate rule sets for the same selector) was merged into
+one `.workspace-tab{}` while doing this. No dead CSS found beyond what
+Steps 1-4 already removed with their markup. Verified live: identical
+visual appearance (screenshot compared before/after), and a functional
+smoke test (select a Prompt -> tab renames, add a tab, status badge
+text) confirmed the renamed classes are correctly wired, not just
+visually coincidental.
 
 ### P1 - Settings (not yet built)
 

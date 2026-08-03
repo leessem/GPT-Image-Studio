@@ -1,4 +1,4 @@
-.job-detail{
+.workspace-panel{
     display:flex;
     flex-direction:column;
     gap:14px;
@@ -8,46 +8,46 @@
     overflow:auto;
 }
 
-.job-detail-header{
+.workspace-panel-header{
     display:flex;
     align-items:center;
     justify-content:space-between;
     font-weight:600;
 }
 
-.job-status-badge{
+.workspace-status-badge{
     font-size:12px;
     padding:4px 10px;
     border-radius:12px;
     background:#444;
 }
 
-.job-status-badge.running{
+.workspace-status-badge.running{
     background:#3d6df2;
 }
 
-.job-status-badge.done{
+.workspace-status-badge.done{
     background:#2f8f4e;
 }
 
-.job-status-badge.error{
+.workspace-status-badge.error{
     background:#a13a3a;
 }
 
-.job-detail-section{
+.workspace-panel-section{
     display:flex;
     flex-direction:column;
     gap:8px;
 }
 
-.job-detail-section-title{
+.workspace-panel-section-title{
     font-size:12px;
     text-transform:uppercase;
     color:#999;
     font-weight:600;
 }
 
-.job-upload-dropzone{
+.workspace-upload-dropzone{
     border:2px dashed #555;
     border-radius:8px;
     padding:20px;
@@ -57,29 +57,29 @@
     transition:.2s;
 }
 
-.job-upload-dropzone.dragging{
+.workspace-upload-dropzone.dragging{
     border-color:#3d6df2;
     background:rgba(61,109,242,.08);
 }
 
-.job-upload-input{
+.workspace-upload-input{
     display:none;
 }
 
-.job-upload-preview{
+.workspace-upload-preview{
     display:flex;
     flex-direction:column;
     gap:8px;
 }
 
-.job-upload-preview img{
+.workspace-upload-preview img{
     width:100%;
     max-height:180px;
     object-fit:cover;
     border-radius:8px;
 }
 
-.job-upload-preview button{
+.workspace-upload-preview button{
     height:32px;
     border:none;
     background:#444;
@@ -88,11 +88,11 @@
     border-radius:4px;
 }
 
-.job-upload-preview button:hover{
+.workspace-upload-preview button:hover{
     background:#555;
 }
 
-.job-detail-section select{
+.workspace-panel-section select{
     height:36px;
     border:none;
     outline:none;
@@ -102,7 +102,7 @@
     padding:0 10px;
 }
 
-.job-generate-button{
+.workspace-generate-button{
     height:40px;
     border:none;
     border-radius:5px;
@@ -112,11 +112,11 @@
     cursor:pointer;
 }
 
-.job-generate-button:hover:not(:disabled){
+.workspace-generate-button:hover:not(:disabled){
     background:#2f5ad1;
 }
 
-.job-generate-button:disabled{
+.workspace-generate-button:disabled{
     background:#3a3a3a;
     color:#777;
     cursor:not-allowed;
