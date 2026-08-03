@@ -1,8 +1,8 @@
 # ROADMAP
 
-## Version 1.0 - RELEASED (2026-08-03)
+## Version 1.0 - FEATURE COMPLETE (2026-08-03)
 
-GPT Image Studio Pro is a dedicated ChatGPT Image Generation Studio, not
+GPT Image Studio is a dedicated ChatGPT Image Generation Studio, not
 a ChatGPT/Project manager. Every feature must make image generation
 faster - if it doesn't, it doesn't belong here.
 
@@ -11,7 +11,9 @@ real ChatGPT account - see WORKLOG Session 8 for the full verification
 transcript):
 
 - ✅ Prompt Library: Create / Edit / Delete, persists across a real
-  app restart.
+  app restart. Backup/Restore to a `prompt-library.json` file, with a
+  Replace/Keep/Rename choice on duplicate titles - never loses an
+  existing prompt.
 - ✅ Workspace tabs: new tab starts as "New Workspace"; selecting a
   Prompt renames it immediately; duplicate Prompt selections across
   tabs produce `Portrait` / `Portrait (2)` / `Portrait (3)`.
@@ -25,14 +27,34 @@ transcript):
   each confirmed to own a distinct webview and a distinct, unmirrored
   conversation URL; switching tabs never touches another tab's
   webview.
+- ✅ Workspace Clear: instant reset of only the active Workspace
+  (image, Prompt, Work Type, status, conversation) so the next image
+  can start immediately without opening a new tab - see WORKLOG
+  Session 14.
+- ✅ Work Type Management: user-defined job categories (Settings > Work
+  Type Management - Add/Edit/Delete/Reorder/Enable-Disable), shown as
+  compact chips in the Workspace panel; at most one selected per
+  Workspace, fully independent of every other Workspace - see WORKLOG
+  Session 13.
 - ✅ Upload → prompt insertion → Generate → automatic download,
-  confirmed end-to-end on 2 of 3 test tabs (Anime, Landscape); the
-  third hit a real, reproduced bug - see Known Issues below.
-- ✅ Automatic saving: `★_Anime_001.png` → `★_Anime_002.png` on a
-  second generation, confirmed via a direct filesystem check (not
-  logs) both times.
-- ✅ Workspace state does not survive a restart; Prompt Library does -
-  confirmed both ways via the live DOM after an actual restart.
+  verified across **20 consecutive real generations** (each with a
+  real uploaded image, a rotating Prompt, and a rotating Work Type):
+  **20/20 ended in a clean "Ready" state, 0 errors, 0 timeouts** - see
+  WORKLOG Session 14. The image-preview race condition and wrong-
+  viewer bug from earlier verification passes are both fixed (root-
+  caused against real ChatGPT DOM structure, not guessed).
+- ✅ Automatic saving: `{Prefix}{Work Type Prefix?}{Prompt Title}.png`
+  the first time that name is used - no numeric suffix at all; only
+  once that exact name already exists does a plain incrementing number
+  get appended (`...2.png`, `...3.png`, ...), confirmed via a direct
+  filesystem check (not logs) - see WORKLOG Session 14.
+- ✅ Settings: Download Folder (Browse + auto-create), Prompt Library
+  Backup/Restore, Work Type Management, Filename Prefix (with live
+  Preview + Reset), read-only Application Information, and a small
+  Credits block - see WORKLOG Sessions 11-14.
+- ✅ Workspace state does not survive a restart; the Prompt Library,
+  Work Type list, and Settings (Download Folder, filename Prefix) all
+  do - confirmed both ways via the live DOM after an actual restart.
 
 **The Workspace IS the tab.** There is no separate Job, Project, or
 Queue concept. Each top tab is one independent Workspace, owning
@@ -145,26 +167,59 @@ files - `★_만삭_Portrait_001.png` (Work Type selected) and
 reorder/enable-disable and a full-restart persistence check covering
 Download Folder, filename Prefix, and the entire Work Type list.
 
-### Known issues (all personally reproduced this release, see WORKLOG
-Session 8 for exact repro steps and diagnostic evidence)
+### Step 10: Workspace Clear - DONE (2026-08-03, see WORKLOG Session 14)
 
-- **Download step can open the wrong image viewer.** Reproduced twice
-  in a row on the same conversation during release verification:
-  `buildOpenImageViewerScript()` clicks the *last* element matching
-  `img[src*="/backend-api/estuary/content"]` - but a Workspace's own
-  *uploaded* image is served from that same backend-api URL pattern
-  once ChatGPT has it, and in this conversation's DOM order it
-  apparently sorted after the actual generated result. The upload
-  dialog opened instead (confirmed via its `alt="upload.png"`, 1:1
-  aspect ratio - not a generated image), which naturally has no
-  Save/Download control, so the pipeline correctly reported "download
-  button not found" rather than silently mis-saving anything. Two
-  other tabs in the same test run (Anime, Landscape) generated and
-  downloaded correctly, so this is conversation/DOM-state-dependent,
-  not a hard failure every time. Not fixed - selector needs to
-  distinguish "the message I just sent's own result" from "any
-  estuary-hosted image on the page," e.g. by scoping to the newest
-  assistant turn instead of document order.
+Added an instant "Clear" action next to Generate: resets only the
+active Workspace (uploaded/generated image, selected Prompt, selected
+Work Type, status/progress/error, conversationUrl) and re-points that
+Workspace's own webview at a fresh ChatGPT conversation, so the next
+image can start right away without opening a new tab. Never touches
+any other Workspace, the Prompt Library, Work Type definitions, or
+Settings. A "✔ Workspace cleared" message shows for ~1s and disappears
+automatically. Verified live: the reset is instant (a first version
+that awaited the webview navigation before resetting state was caught
+and fixed - see WORKLOG); clearing one Workspace never affected a
+sibling Workspace; a full upload → Prompt → Work Type → Generate cycle
+worked correctly immediately after clearing.
+
+### Step 11: production reliability fixes - DONE (2026-08-03, see WORKLOG Session 14)
+
+Two issues fixed and stress-tested before considering V1.0 stable:
+
+- **Filename numbering** changed to no-suffix-first, per explicit spec:
+  `★_만삭_노을감성.png` the first time, `...2.png`/`...3.png` only once
+  that name already exists - never `_001`-style padding.
+- **Image preview race condition**, root-caused against real ChatGPT
+  DOM (not guessed): `buildOpenImageViewerScript()` used to match any
+  image served from ChatGPT's backend-api URL pattern in document
+  order - which also matches a Workspace's own uploaded image (and even
+  the sidebar's account icon), so it could click the wrong one. Fixed
+  by scoping to ChatGPT's own `imagegen-image` container class,
+  confirmed live to appear only once real generation completes and to
+  never match an uploaded image. A new pipeline step also verifies the
+  normal chat interface is active after upload (closing any preview
+  dialog first) before prompt insertion ever runs.
+
+**Verified with 20 consecutive real generations** (real uploaded image
++ rotating Prompt + rotating Work Type each time, Cleared between
+runs): 20/20 ended in "Ready", 0 errors, 0 timeouts, and the original
+failure did not recur once across all 20 post-fix attempts.
+
+### Step 12: filename prefix simplification - DONE (2026-08-03, see WORKLOG Session 14)
+
+Removed the automatic separator the app used to insert between the
+global Prefix and the rest (`{Prefix}_{Work Type Prefix?}{Title}`) -
+real use showed this doubled up with a Work Type prefix that already
+ended in `_` (e.g. `★__만삭_...`). The builder now does pure
+concatenation (`{Prefix}{Work Type Prefix?}{Title}`); any separator the
+user wants, they type themselves. Settings' Filename Preview and
+helper text were rewritten to match exactly. Verified live: a real
+generation with a Work Type whose own prefix already included
+underscores produced a single underscore, not a doubled one.
+
+### Known issues (see WORKLOG for exact repro steps and diagnostic
+evidence per session)
+
 - **Workspace state reset unexpectedly mid-verification-session,
   without an intentional reload or an explicit crash trace in the dev
   log.** Observed once: after ~10 minutes of continuous CDP-driven
@@ -177,6 +232,14 @@ Session 8 for exact repro steps and diagnostic evidence)
   pattern already documented in earlier sessions under heavy automated
   CDP testing specifically - not confirmed to affect normal
   interactive use, but recorded here rather than silently ignored.
+- **Clear's webview navigation not conclusively verified.** One live
+  check found a Workspace's webview still pointed at its old
+  conversation a few seconds after clicking Clear, even though the
+  fire-and-forget `loadURL()` call resolved without error. Not
+  root-caused - real concurrent app usage was also observed around the
+  same testing window, which could equally explain a single anomalous
+  reading. Worth a focused, uninterrupted repro before fully trusting
+  it (see WORKLOG Session 14).
 - No idle-eviction for Workspace webviews - a webview is only torn
   down when its Workspace/tab is closed; a session with many
   opened-and-abandoned tabs will hold real memory (~250-300MB per

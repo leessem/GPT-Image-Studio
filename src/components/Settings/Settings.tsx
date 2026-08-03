@@ -587,14 +587,18 @@ export default function Settings({
                             <div className="settings-readonly-row">
                                 <span>Preview</span>
                                 <code>
-                                    {sanitizeForPreview(filenamePrefix)}_Portrait_001.png
+                                    {sanitizeForPreview(filenamePrefix)}Portrait.png
                                 </code>
                             </div>
 
                             <p className="settings-note">
-                                When a Workspace has a Work Type selected, its
-                                Filename Prefix is inserted right after the
-                                Prefix above - e.g. {sanitizeForPreview(filenamePrefix)}_만삭_Portrait_001.png.
+                                The selected Work Type is automatically
+                                inserted after the filename prefix - e.g.{" "}
+                                {sanitizeForPreview(filenamePrefix)}만삭Portrait.png.
+                                If that name already exists, a number is
+                                added automatically:{" "}
+                                {sanitizeForPreview(filenamePrefix)}만삭Portrait2.png,{" "}
+                                {sanitizeForPreview(filenamePrefix)}만삭Portrait3.png.
                             </p>
 
                         </div>

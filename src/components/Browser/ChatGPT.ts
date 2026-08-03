@@ -291,13 +291,35 @@ export function buildOpenImageViewerScript() {
 
   const selector = ${JSON.stringify(GENERATED_IMAGE_SELECTOR)};
 
-  const images = Array.from(document.querySelectorAll(selector));
+  // Scoped to ChatGPT's own "imagegen-image" container class (confirmed
+  // live via direct DOM inspection - not guessed), never document
+  // order or a message-author-role attribute (ChatGPT's current DOM
+  // does not set one at all). The backend-api URL pattern alone is not
+  // enough to identify a generated image: it also matches a
+  // Workspace's own uploaded image AND unrelated UI chrome (confirmed
+  // live - even the sidebar's account icon shares this same URL
+  // pattern). Matching anywhere in the document risked clicking the
+  // wrong one whenever it happened to sort last (confirmed live: this
+  // opened a preview of the uploaded photo, which has no Save/Download
+  // control, reporting a false "download button not found" error even
+  // though ChatGPT had generated the image correctly, and separately
+  // confirmed live that the uploaded image is never inside an
+  // "imagegen-image" container). Automation must never rely on
+  // clicking the uploaded image - this makes that structurally
+  // impossible, not just unlikely.
+  const containers = document.querySelectorAll('[class*="imagegen-image"]');
 
-  if (images.length === 0) {
-    return { success: false, reason: "generated image not found" };
+  const lastContainer = containers[containers.length - 1];
+
+  if (!lastContainer) {
+    return { success: false, reason: "no generated-image container found" };
   }
 
-  const image = images[images.length - 1];
+  const image = lastContainer.querySelector(selector);
+
+  if (!image) {
+    return { success: false, reason: "generated image not found within the image-gen container" };
+  }
 
   image.click();
 
@@ -892,6 +914,121 @@ ${buildDomSnapshotSnippet()}
       }
 
       setTimeout(check, pollMs);
+
+    };
+
+    check();
+
+  });
+
+})();
+`;
+}
+
+// ============================================================================
+// Image Preview race condition (intermittent): after an upload,
+// ChatGPT can - not every time - end up showing an image preview/
+// lightbox (the same 'div[role="dialog"]' the generated-image viewer
+// later uses) instead of the normal composer. Continuing automation
+// while that's open is unreliable (the enlarged image is covering the
+// real interface), so this step runs right after the upload-completed
+// check and BEFORE prompt insertion: verify the normal chat interface
+// (composer) is active, and if a preview is open instead, close it
+// first - automation must never continue with one open.
+// ============================================================================
+
+export function buildEnsureNormalChatInterfaceScript() {
+  return `
+(() => {
+
+  return new Promise((resolve) => {
+
+    const timeoutMs = 5000;
+    const pollMs = 100;
+    const startedAt = Date.now();
+
+    const dialog = document.querySelector('div[role="dialog"]');
+
+    if (!dialog) {
+      console.log("[ChatGPT] [Step 6.5/10] OK - no preview open, normal chat interface already active");
+      resolve({ success: true, wasOpen: false });
+      return;
+    }
+
+    console.warn("[ChatGPT] [Step 6.5/10] Preview/dialog unexpectedly open after upload - closing it before continuing");
+
+    // Same language-independent close-button matching as
+    // buildCloseImageViewerScript. Escape is a safe fallback here
+    // (unlike after Send, nothing is generating yet at this point in
+    // the pipeline, so there is no "stop conversation" shortcut to
+    // accidentally trigger).
+    const CLOSE_ARIA_LABEL_CANDIDATES = ["전체 화면 닫기", "닫기", "close"];
+    const CLOSE_ICON_HREF_CANDIDATES = ["85f94b"];
+
+    const elements = Array.from(dialog.querySelectorAll('button, [role="button"]'));
+
+    const candidates = elements.map(el => ({
+      el,
+      ariaLabel: el.getAttribute("aria-label"),
+      role: el.getAttribute("role") || el.tagName.toLowerCase(),
+      iconHref: el.querySelector("svg use")?.getAttribute("href") || null,
+    }));
+
+    let closeButton = candidates.find(c =>
+      c.ariaLabel &&
+      CLOSE_ARIA_LABEL_CANDIDATES.some(
+        k => c.ariaLabel === k || c.ariaLabel.toLowerCase().includes(k.toLowerCase())
+      )
+    )?.el;
+
+    if (!closeButton) {
+      closeButton = candidates.find(c =>
+        c.role === "button" &&
+        c.iconHref &&
+        CLOSE_ICON_HREF_CANDIDATES.some(k => c.iconHref.includes(k))
+      )?.el;
+    }
+
+    if (closeButton) {
+      closeButton.click();
+    } else {
+      dialog.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "Escape",
+        code: "Escape",
+        keyCode: 27,
+        bubbles: true,
+        cancelable: true,
+      }));
+    }
+
+    const check = () => {
+
+      const stillOpen = document.querySelector('div[role="dialog"]');
+
+      if (stillOpen) {
+
+        if (Date.now() - startedAt > timeoutMs) {
+          console.error("[ChatGPT] [Step 6.5/10] FAILED - preview did not close");
+          resolve({ success: false, wasOpen: true, reason: "preview did not close" });
+          return;
+        }
+
+        setTimeout(check, pollMs);
+        return;
+
+      }
+
+      const editor = document.querySelector("#prompt-textarea");
+
+      if (!editor) {
+        console.error("[ChatGPT] [Step 6.5/10] FAILED - composer not found after closing preview");
+        resolve({ success: false, wasOpen: true, reason: "composer not found after closing preview" });
+        return;
+      }
+
+      console.log("[ChatGPT] [Step 6.5/10] OK - preview closed, normal chat interface active again");
+
+      resolve({ success: true, wasOpen: true });
 
     };
 

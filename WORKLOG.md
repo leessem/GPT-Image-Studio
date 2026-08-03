@@ -1867,3 +1867,192 @@ session's own CDP-driven testing (Settings and the Workspace chips are
 ordinary UI, so both can legitimately drive the same running instance
 at once). Neither affected the verification above, since each check
 re-read live state rather than assuming a prior result still held.
+
+## Session 14 (2026-08-03): Workspace Clear, two production fixes, filename prefix simplification
+
+**Workspace Clear (new toolbar action).** Added an instant "Clear"
+button next to Generate in `WorkspacePanel`, resetting only the active
+Workspace back to a brand-new state (image, generated result, selected
+Prompt, selected Work Type, status/progress/error, conversationUrl) and
+re-pointing that Workspace's own webview at a fresh ChatGPT
+conversation - never touching any other Workspace, the Prompt Library,
+Work Type definitions, or Settings.
+`WorkspaceService.clearWorkspace()` reuses `createWorkspace()`'s own
+blank shape (`{...createWorkspace(), id: w.id, createdAt: w.createdAt}`)
+rather than re-listing every field to reset, so there is exactly one
+definition of "what a fresh Workspace looks like." A real bug was
+caught and fixed during implementation: the first version awaited the
+webview's `loadURL()` (a real page navigation) *before* resetting
+Workspace state, which visibly delayed the "instant" reset by however
+long that navigation took - fixed by resetting state synchronously
+first and firing the navigation after, without awaiting it.
+A small "✔ Workspace cleared" message shows for ~1s and disappears
+automatically (verified live: visible through ~1.3s, gone by ~1.6s -
+"approximately 1 second," not an exact deadline); it's tracked as local
+UI state in `WorkspacePanel` (not Workspace data) and is force-hidden
+whenever the *displayed* Workspace changes, since the component
+instance is reused across tabs and never unmounts on switch.
+**Verified live:** the state reset is instant (tab title, Prompt
+selection, Work Type chip, status dot, Generate/Clear enabled state all
+flip in the same DOM check, no waiting on anything network-related);
+clearing one Workspace never touched a sibling Workspace's own Prompt/
+title (confirmed with two tabs open); a full real cycle (upload select
+Prompt select Work Type Generate) worked correctly on a Workspace
+immediately after clearing it, including the resulting filename.
+**Known open item:** one live check found the webview's own URL had
+*not* changed to a fresh conversation a few seconds after clicking
+Clear on a Workspace with an established real conversation and an
+Error status, even though the fire-and-forget `loadURL()` call
+resolved without throwing - not conclusively root-caused (the app
+closed and reopened multiple times around the same testing window from
+what looks like real concurrent use, which could just as easily explain
+a single anomalous reading as a real bug). Flagging here rather than
+silently assuming it's fine; worth a focused, uninterrupted repro
+before trusting it fully.
+
+**Issue 1 - filename numbering, corrected.** The numbered-from-001
+scheme was replaced with the requested rule: no numeric suffix at all
+the first time a name is saved (`★_만삭_노을감성.png`); only once that
+exact name already exists does a plain integer get appended directly
+to the base name, no separator, no zero-padding (`...2.png`,
+`...3.png`, ...). `buildAutoFilename()` in `electron/main.ts` now tries
+the bare name first and only enters the numbered-suffix loop starting
+at `n = 2` if that first candidate already exists on disk. Still never
+overwrites an existing file.
+
+**Issue 2 - image preview race condition, root-caused and fixed.**
+Symptoms (intermittent, upload-related: the uploaded image opening in
+a full-screen preview, a false Error, the Work Type prefix
+occasionally missing from the save) traced back to
+`buildOpenImageViewerScript()` matching *any* `img[src*=
+"/backend-api/estuary/content"]` in **document order** to decide which
+image to click and download. Live DOM inspection (connecting directly
+to the ChatGPT `<webview>`'s own CDP target, not the outer app page -
+querying the outer page's `document` for webview-internal content is a
+silent no-op, a mistake made and caught mid-investigation) confirmed
+that URL pattern is not unique to generated images at all: a
+Workspace's own uploaded photo uses the exact same pattern, and so -
+surprisingly - does the sidebar's account icon. A first fix attempt
+scoped the click to `[data-message-author-role="assistant"]`, following
+an assumption already written into this codebase's comments; live
+testing immediately falsified it - the current ChatGPT UI does not set
+that attribute anywhere (`0` matches), so every real attempt failed
+with "no assistant turn found." The actual working fix, confirmed
+against real DOM structure: ChatGPT wraps every AI-generated image in a
+container carrying a `imagegen-image` class fragment
+(`[class*="imagegen-image"]`) - confirmed live that this container
+appears only once real generation completes (not from the moment of
+upload) and confirmed live that an uploaded image's own container never
+matches it. `buildOpenImageViewerScript()` now finds the last such
+container and clicks the generated image inside it - structurally
+unable to click the uploaded image, not just unlikely to. Separately,
+a new `buildEnsureNormalChatInterfaceScript()` runs right after the
+upload-completed check and before prompt insertion: if a
+`div[role="dialog"]` preview happens to already be open at that point,
+it closes it (same button-matching/Escape-fallback approach as the
+existing image-viewer-closer) and only proceeds once the composer is
+confirmed active again - automation now structurally cannot continue
+while a preview is covering the composer.
+
+**Verified live - 20 consecutive real generations** (each with a real
+uploaded test image, a rotating Prompt, and a rotating Work Type,
+Cleared between each one): **20/20 ended in "Ready"**, 0 ended in
+"Error", 0 timed out, and the original "no assistant turn found"
+failure that caused the very first stress-test attempt (pre-fix) to
+error on iteration 1 did not recur even once across all 20 post-fix
+attempts. One iteration (18 of 20) showed an unexpected empty Work
+Type/upload reading, and a different iteration (19) logged one real
+transient "download did not complete: timed out" before still
+recovering to "Ready" - both are most plausibly explained by the same
+real concurrent live usage noted in Session 13 (the app was observed to
+close and reopen mid-run more than once, outside anything this
+session's own scripts did), not by the two fixes above; recorded
+honestly rather than waved away. The Preview-race recovery path itself
+was never actually exercised during these 20 runs (`0/20` - the
+intermittent trigger simply didn't occur), so it's verified as
+logically sound and live-tested for its "no preview open" no-op path,
+but not yet observed successfully firing its "preview was open, close
+it" branch for real.
+
+**Filename Settings UI + prefix simplification (follow-up in the same
+session).** The user identified that the auto-inserted separator
+between the global Prefix and the rest (added when Settings was first
+introduced) was producing doubled underscores in real use, since Work
+Type prefixes the user had already configured with their own trailing
+`_` (e.g. `만삭_`) now got an *extra* one from the app itself
+(`★__만삭_...`, confirmed live in the user's own real output files).
+Removed that automatic separator entirely: `buildAutoFilename()` now
+does pure concatenation, `{Prefix}{Work Type Prefix?}{Prompt Title}` -
+the user types every separator they want themselves, in the Prefix
+and/or a Work Type's own Filename Prefix field. Settings' Filename
+Preview and helper text were rewritten to match exactly (`★Portrait.png`
+bare, `★만삭Portrait.png` with a Work Type, `★만삭Portrait2.png`/`3.png`
+for duplicates) using the live-typed Prefix, not a hardcoded example.
+**Verified live:** Preview and helper text confirmed via DOM query
+matching this exact wording; a real generation with the "주니어"
+Work Type (whose own configured prefix is `_주니어_`) produced
+`★_주니어_Portrait.png` - a single underscore (the user's own), not the
+previous double-underscore bug.
+
+`npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean throughout this
+session. `grep remote-debugging-port electron/main.ts`: confirmed
+clean (the temporary CDP switch used for all of this session's live
+verification was reverted before this entry was written) - note this
+took two attempts, since the first attempted revert silently failed to
+apply for an unclear reason and was only caught by re-grepping instead
+of trusting the edit tool's own success report.
+
+Not committed yet - none of this session's work (Clear, the two
+production fixes, or the filename UI polish) has been committed or
+pushed; holding for explicit go-ahead as usual.
+
+## Session 15 (2026-08-03): Version 1.0 - feature complete, release candidate
+
+Declared feature complete. Final project verification before the
+release commit:
+
+- `npx tsc --noEmit`: clean, zero errors.
+- `npx eslint . --ext ts,tsx`: clean, zero errors.
+- `npx vite build` (renderer + electron main/preload, deliberately
+  *not* `npm run build`'s full `electron-builder` step - installers are
+  explicitly out of scope for this pass): all three stages built
+  clean - `dist/` (198.66 kB JS, 12.91 kB CSS), `dist-electron/main.js`
+  (6.01 kB), `dist-electron/preload.mjs` (1.34 kB).
+- Reverted the two tracked build artifacts (`dist-electron/main.js`,
+  `preload.mjs`) back to their committed state afterward, per usual
+  practice - a verification build isn't a source change.
+- Also fixed a small leftover branding inconsistency caught during this
+  pass: the actual Electron `BrowserWindow` title was still literally
+  `"GPT Image Studio Pro"`, even though the in-app Toolbar text was
+  already rebranded to `"GPT Image Studio"` in an earlier light-theme
+  session - the OS-level window/taskbar title had never been updated
+  along with it. Fixed in `electron/main.ts`.
+
+**Documentation for the V1.0 release:**
+- `ROADMAP.md`: header changed to "Version 1.0 - FEATURE COMPLETE",
+  the top verified-feature list rewritten to reflect final reality
+  (Workspace Clear, Work Type Management, the corrected filename
+  system, the full Settings surface, and the 20/20 stress-test result
+  from Session 14 replacing the older "2 of 3 tabs, one reproduced
+  bug" line, which is now fixed). Added Steps 10-12 covering Session
+  14's work (Clear, the two production fixes + 20x verification,
+  filename prefix simplification). Known Issues updated: the
+  "wrong image viewer" bug is removed from the list (fixed, root-caused
+  and stress-tested in Session 14) and Session 14's new open item
+  (Clear's webview navigation not conclusively verified) was added.
+- `README.md`: was still the unedited default Vite/React/TypeScript
+  scaffold text from project creation - never actually described this
+  application. Rewritten from scratch: what GPT Image Studio is, the
+  core workflow (Prompt Library -> Workspace tabs -> Work Type ->
+  Generate -> auto-save), the Settings surface, run/build commands, and
+  a pointer to ROADMAP.md/WORKLOG.md for full history - see the file
+  itself for the exact wording.
+- `WORKLOG.md`: this entry.
+
+Not committing documentation-only or partial work from here - the next
+step is one clean release commit covering everything currently
+uncommitted (Sessions 14 and 15 together: Workspace Clear, the two
+production fixes, the filename UI polish, and this session's doc
+updates), then a push to `origin/main`, per explicit instruction.
+Installers are explicitly deferred - not building or committing any
+`release/` output this pass.

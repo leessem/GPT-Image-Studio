@@ -153,7 +153,13 @@
     color:#2563eb;
 }
 
+.workspace-generate-row{
+    display:flex;
+    gap:8px;
+}
+
 .workspace-generate-button{
+    flex:1;
     height:42px;
     border:none;
     border-radius:8px;
@@ -172,4 +178,33 @@
     background:#e5e5e5;
     color:#999999;
     cursor:not-allowed;
+}
+
+.workspace-clear-button{
+    height:42px;
+    padding:0 18px;
+    border:1px solid #c9cdd3;
+    border-radius:8px;
+    background:#f3f4f6;
+    color:#222222;
+    font-weight:600;
+    cursor:pointer;
+    transition:background .15s ease;
+}
+
+.workspace-clear-button:hover:not(:disabled){
+    background:#e5e5e5;
+}
+
+.workspace-clear-button:disabled{
+    background:#f3f4f6;
+    color:#999999;
+    cursor:not-allowed;
+}
+
+.workspace-cleared-message{
+    font-size:12px;
+    font-weight:600;
+    color:#16a34a;
+    text-align:center;
 }

@@ -19,6 +19,7 @@ import {
     buildCloseImageViewerScript,
     buildUploadImageScript,
     buildWaitUploadScript,
+    buildEnsureNormalChatInterfaceScript,
     buildWaitComposerReadyScript,
 } from "../components/Browser/ChatGPT";
 
@@ -242,6 +243,39 @@ export async function runGenerate({
             }
 
             console.log("[Generate] OK - upload completed");
+
+            // =================================================================
+            // Intermittent race: ChatGPT can - not always - leave an image
+            // preview/lightbox open over the just-uploaded thumbnail instead
+            // of the normal composer. Automation must never continue while
+            // that's active (it silently breaks prompt insertion/Send), so
+            // this verifies the normal chat interface is back, closing the
+            // preview first if one is open.
+            // =================================================================
+
+            const chatInterfaceResult = await browser.execute(
+
+                buildEnsureNormalChatInterfaceScript()
+
+            ) as { success: boolean; wasOpen?: boolean; reason?: string } | undefined;
+
+            if (!chatInterfaceResult?.success) {
+
+                console.error(
+                    `[Generate] FAILED - normal chat interface not active after upload: ${chatInterfaceResult?.reason ?? "no result"}`
+                );
+
+                onUpdate(w => ({ ...w, status: "error" }));
+
+                return;
+
+            }
+
+            if (chatInterfaceResult.wasOpen) {
+
+                console.warn("[Generate] Preview was open after upload and has been closed");
+
+            }
 
         }
 

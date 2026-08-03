@@ -86,14 +86,15 @@ let generatedImagesDir =
   persistedSettings.downloadFolder ??
   path.join(app.getPath("downloads"), "GPT Image Studio");
 
-// V1.0 filename system: {Prefix}_{Work Type Prefix?}{Prompt Title}_{NNN}.png.
+// V1.0 filename system: {Prefix}{Work Type Prefix?}{Prompt Title}.png,
+// pure concatenation - the app never inserts a separator of its own.
 // Only the global Prefix is user-configurable (Settings > Filename,
 // default "★"); the Prompt Title is always appended automatically and
-// is never editable. The Work Type Prefix is optional, chosen per
-// Workspace (Settings > Work Type Management), and already includes
-// its own trailing separator if the user typed one (e.g. "만삭_") -
-// the app only ever inserts the ONE separator right after the global
-// Prefix, never between the Work Type Prefix and the Prompt Title.
+// is never editable. If a user wants an underscore between any of
+// these parts, they type it themselves (in the Prefix and/or a Work
+// Type's own Filename Prefix, e.g. "만삭_") - the app must never add
+// one automatically, or a Prefix/Work Type Prefix that already ends in
+// "_" ends up with a doubled "__" the user never asked for.
 let filenamePrefix = persistedSettings.filenamePrefix ?? "★";
 
 interface PendingDownload {
@@ -114,12 +115,13 @@ function sanitizeFilenamePart(value: string): string {
 }
 
 /**
- * "{Prefix}_{Work Type Prefix?}{Prompt Title}_{NNN}.png", numbered
- * sequentially from 001 against whatever already exists on disk for
- * that same name - every file is numbered (not just the first
- * collision) so filenames sort consistently, and numbering never
- * overwrites an existing file. An empty title falls back to "Untitled"
- * so the filename can never be empty even if the Prefix is also empty.
+ * "{Prefix}{Work Type Prefix?}{Prompt Title}.png" the first time that
+ * exact name is saved - no numeric suffix at all. Only once a file
+ * with that exact name already exists does a plain incrementing number
+ * get appended directly to the base name (no separator, no zero-
+ * padding): `...Title2.png`, `...Title3.png`, ... Never overwrites an
+ * existing file. An empty title falls back to "Untitled" so the
+ * filename can never be empty even if the Prefix is also empty.
  */
 function buildAutoFilename(
   dir: string,
@@ -133,17 +135,23 @@ function buildAutoFilename(
 
   const safeWorkTypePrefix = sanitizeFilenamePart(workTypePrefix);
 
-  let n = 1;
+  const base = `${safePrefix}${safeWorkTypePrefix}${safeName}`;
 
-  let candidate =
-    `${safePrefix}_${safeWorkTypePrefix}${safeName}_${String(n).padStart(3, "0")}.png`;
+  const firstCandidate = `${base}.png`;
+
+  if (!fs.existsSync(path.join(dir, firstCandidate))) {
+    return firstCandidate;
+  }
+
+  let n = 2;
+
+  let candidate = `${base}${n}.png`;
 
   while (fs.existsSync(path.join(dir, candidate))) {
 
     n++;
 
-    candidate =
-      `${safePrefix}_${safeWorkTypePrefix}${safeName}_${String(n).padStart(3, "0")}.png`;
+    candidate = `${base}${n}.png`;
 
   }
 
@@ -174,7 +182,7 @@ function createWindow() {
     minWidth: 1400,
     minHeight: 900,
 
-    title: "GPT Image Studio Pro",
+    title: "GPT Image Studio",
 
     autoHideMenuBar: true,
 

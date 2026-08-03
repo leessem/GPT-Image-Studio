@@ -8,7 +8,7 @@
 // separate Job to select, no empty state, since a Workspace always exists.
 // ============================================================================
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import "./WorkspacePanel.css";
 
@@ -46,6 +46,8 @@ interface WorkspacePanelProps {
 
     onGenerate: () => void;
 
+    onClear: () => void;
+
 }
 
 export default function WorkspacePanel({
@@ -66,11 +68,49 @@ export default function WorkspacePanel({
 
     onGenerate,
 
+    onClear,
+
 }: WorkspacePanelProps) {
 
     const [isDragging, setIsDragging] = useState(false);
 
     const inputRef = useRef<HTMLInputElement>(null);
+
+    // ========================================================================
+    // Clear - "✔ Workspace cleared" is a purely transient bit of local UI
+    // feedback, not Workspace data, so it lives here rather than on the
+    // Workspace object. Switching to a different Workspace tab must never
+    // leave a stale message showing on it, so it's force-hidden whenever
+    // the *displayed* workspace changes (this component instance is
+    // reused across tabs - it never unmounts on switch).
+    // ========================================================================
+
+    const [showClearedMessage, setShowClearedMessage] = useState(false);
+
+    const clearedMessageTimeout = useRef<ReturnType<typeof setTimeout>>();
+
+    useEffect(() => {
+
+        setShowClearedMessage(false);
+
+        return () => clearTimeout(clearedMessageTimeout.current);
+
+    }, [workspace.id]);
+
+    const handleClear = () => {
+
+        onClear();
+
+        setShowClearedMessage(true);
+
+        clearTimeout(clearedMessageTimeout.current);
+
+        clearedMessageTimeout.current = setTimeout(
+            () => setShowClearedMessage(false),
+            1000
+        );
+
+    };
 
     const addFile = (files: FileList | null) => {
 
@@ -290,24 +330,50 @@ export default function WorkspacePanel({
             )}
 
             {/* ---------------------------------------------------------
-                Generate
+                Generate / Clear
             ---------------------------------------------------------- */}
 
             <div className="workspace-panel-section">
 
-                <button
+                <div className="workspace-generate-row">
 
-                    className="workspace-generate-button"
+                    <button
 
-                    disabled={!workspace.prompt || workspace.status === "running"}
+                        className="workspace-generate-button"
 
-                    onClick={onGenerate}
+                        disabled={!workspace.prompt || workspace.status === "running"}
 
-                >
+                        onClick={onGenerate}
 
-                    Generate
+                    >
 
-                </button>
+                        Generate
+
+                    </button>
+
+                    <button
+
+                        className="workspace-clear-button"
+
+                        disabled={workspace.status === "running"}
+
+                        onClick={handleClear}
+
+                    >
+
+                        Clear
+
+                    </button>
+
+                </div>
+
+                {showClearedMessage && (
+
+                    <span className="workspace-cleared-message">
+                        ✔ Workspace cleared
+                    </span>
+
+                )}
 
             </div>
 

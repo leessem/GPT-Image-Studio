@@ -9,7 +9,7 @@
 
 import { useRef, useState, useEffect } from "react";
 
-import BrowserPool, { BrowserPoolHandle } from "../Browser/Browser";
+import BrowserPool, { BrowserPoolHandle, CHATGPT_HOME_URL } from "../Browser/Browser";
 import Prompt from "../Prompt/Prompt";
 import Toolbar from "../Toolbar/Toolbar";
 import WorkspaceTabs from "./WorkspaceTabs";
@@ -32,6 +32,7 @@ import {
     setWorkspacePrompt,
     setWorkspaceWorkType,
     setWorkspaceUploadedImage,
+    clearWorkspace,
 } from "../../services/WorkspaceService";
 
 import "./Workspace.css";
@@ -165,6 +166,29 @@ export default function Workspace() {
             onError: err => console.error(err),
 
         });
+
+    };
+
+    // ========================================================================
+    // Clear - instant reset of ONLY the active Workspace (its own image/
+    // prompt/Work Type/status/conversation), so the user can start the
+    // next generation right away without opening a new Workspace tab.
+    // Never touches the Prompt Library, Work Type definitions, Settings,
+    // or any other Workspace. Disabled while this Workspace is running
+    // (see WorkspacePanel) so it can never race the in-flight generation.
+    // ========================================================================
+
+    const onClearWorkspace = () => {
+
+        const workspace = currentWorkspace;
+
+        // The visual reset must happen first and synchronously - it's
+        // the "instant" part. Re-pointing the webview at a fresh
+        // conversation is a real page navigation (not instant), so it
+        // fires after, without the reset ever waiting on it.
+        setWorkspaces(prev => clearWorkspace(prev, workspace.id));
+
+        browserPoolRef.current?.get(workspace.id)?.loadURL(CHATGPT_HOME_URL);
 
     };
 
@@ -368,6 +392,8 @@ export default function Workspace() {
                     onSelectWorkType={onSelectWorkType}
 
                     onGenerate={onGenerate}
+
+                    onClear={onClearWorkspace}
 
                 />
 

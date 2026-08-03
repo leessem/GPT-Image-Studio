@@ -146,6 +146,32 @@ export function setWorkspaceWorkType(
 
 }
 
+/**
+ * Resets a Workspace back to a brand-new state - the toolbar's instant
+ * "Clear" action, letting the user start the next generation without
+ * opening a new Workspace tab. Reuses createWorkspace()'s own blank
+ * shape (so there's exactly one definition of "what a fresh Workspace
+ * looks like"), preserving only this Workspace's id and createdAt so
+ * its tab identity/position never changes. Every other Workspace, the
+ * Prompt Library, Work Type definitions, and Settings are untouched -
+ * this only ever updates the one Workspace with a matching id.
+ */
+export function clearWorkspace(
+
+    workspaces: Workspace[],
+
+    id: string
+
+): Workspace[] {
+
+    return updateWorkspace(
+        workspaces,
+        id,
+        w => ({ ...createWorkspace(), id: w.id, createdAt: w.createdAt })
+    );
+
+}
+
 export function setWorkspaceUploadedImage(
 
     workspaces: Workspace[],
