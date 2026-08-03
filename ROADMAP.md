@@ -1,10 +1,32 @@
 # ROADMAP
 
-## Current State: Version 1.0 (2026-08-03)
+## Version 1.0 - RELEASED (2026-08-03)
 
 GPT Image Studio Pro is a dedicated ChatGPT Image Generation Studio, not
 a ChatGPT/Project manager. Every feature must make image generation
 faster - if it doesn't, it doesn't belong here.
+
+**Verified feature list for this release** (live, real Electron app,
+real ChatGPT account - see WORKLOG Session 8 for the full verification
+transcript):
+
+- ✅ Prompt Library: Create / Edit / Delete, persists across a real
+  app restart.
+- ✅ Workspace tabs: new tab starts as "New Tab"; selecting a Prompt
+  renames it immediately; duplicate Prompt selections across tabs
+  produce `Portrait` / `Portrait (2)` / `Portrait (3)`.
+- ✅ Independent ChatGPT Workspaces: 3 tabs (Portrait/Anime/Landscape)
+  each confirmed to own a distinct webview and a distinct, unmirrored
+  conversation URL; switching tabs never touches another tab's
+  webview.
+- ✅ Upload → prompt insertion → Generate → automatic download,
+  confirmed end-to-end on 2 of 3 test tabs (Anime, Landscape); the
+  third hit a real, reproduced bug - see Known Issues below.
+- ✅ Automatic saving: `★_Anime_001.png` → `★_Anime_002.png` on a
+  second generation, confirmed via a direct filesystem check (not
+  logs) both times.
+- ✅ Workspace state does not survive a restart; Prompt Library does -
+  confirmed both ways via the live DOM after an actual restart.
 
 **The Workspace IS the tab.** There is no separate Job, Project, or
 Queue concept. Each top tab is one independent Workspace, owning
@@ -53,11 +75,38 @@ actual Settings screen (own localStorage-backed store, UI, wiring into
 the download path) is future work; the Settings button in the Toolbar
 is intentionally still disabled ("Coming soon") until then.
 
-### Known open issues (carried over, unaffected by the V1.0 rewrite)
+### Known issues (all personally reproduced this release, see WORKLOG
+Session 8 for exact repro steps and diagnostic evidence)
 
-- Download step is occasionally flaky (seen once: "download button not
-  found" on an otherwise-correct run) - not investigated further,
-  low-frequency.
+- **Download step can open the wrong image viewer.** Reproduced twice
+  in a row on the same conversation during release verification:
+  `buildOpenImageViewerScript()` clicks the *last* element matching
+  `img[src*="/backend-api/estuary/content"]` - but a Workspace's own
+  *uploaded* image is served from that same backend-api URL pattern
+  once ChatGPT has it, and in this conversation's DOM order it
+  apparently sorted after the actual generated result. The upload
+  dialog opened instead (confirmed via its `alt="upload.png"`, 1:1
+  aspect ratio - not a generated image), which naturally has no
+  Save/Download control, so the pipeline correctly reported "download
+  button not found" rather than silently mis-saving anything. Two
+  other tabs in the same test run (Anime, Landscape) generated and
+  downloaded correctly, so this is conversation/DOM-state-dependent,
+  not a hard failure every time. Not fixed - selector needs to
+  distinguish "the message I just sent's own result" from "any
+  estuary-hosted image on the page," e.g. by scoping to the newest
+  assistant turn instead of document order.
+- **Workspace state reset unexpectedly mid-verification-session,
+  without an intentional reload or an explicit crash trace in the dev
+  log.** Observed once: after ~10 minutes of continuous CDP-driven
+  testing (3 tabs, 4 generations), the app's Workspace state was found
+  reset to a single fresh "New Tab" with no user action taken. Prompt
+  Library was correctly still intact (as designed - it's independent
+  of Workspace state), so no data was actually lost beyond the
+  now-closed tabs themselves. No crash/error appeared in the `npm run
+  dev` log at the time. This matches the general process-instability
+  pattern already documented in earlier sessions under heavy automated
+  CDP testing specifically - not confirmed to affect normal
+  interactive use, but recorded here rather than silently ignored.
 - No idle-eviction for Workspace webviews - a webview is only torn
   down when its Workspace/tab is closed; a session with many
   opened-and-abandoned tabs will hold real memory (~250-300MB per

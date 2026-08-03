@@ -1288,3 +1288,147 @@ tab brought the count to 2, the status badge read "Waiting" - all via
 reverted).
 
 Both V1.0 milestones (Steps 1-4, and Step 5) are now committed.
+
+---
+
+## Session 8 (2026-08-03): V1.0 release verification gate
+
+Full live verification pass before the first stable V1.0 release, per
+instruction: no code changes, real Electron app, real ChatGPT account,
+evidence for every checklist item, only personally-reproduced issues
+recorded. No source files were touched this session - only the
+temporary `--remote-debugging-port` switch (added and removed, as
+every prior session).
+
+### 1. Prompt Library
+
+Reset both `localStorage` keys for a clean run. Discovered (not a bug,
+pre-existing `PromptStore.ts` behavior, unrelated to any recent
+change): a cleared library re-seeds two legacy entries ("Portrait",
+"Anime") from `src/data/prompts.json`'s migration path, which briefly
+produced duplicate-titled entries when the test then created new
+"Portrait"/"Anime" prompts on top - cleaned up by removing the
+legacy-seeded pair (content-empty negative prompt) before continuing.
+Not a defect: the app has never enforced unique Prompt titles, and this
+was purely a test-setup wrinkle.
+
+- **Create**: Portrait, Anime, Landscape, TempToDelete - all 4
+  appeared immediately. PASS.
+- **Edit**: appended "EDITED-MARKER" to Landscape's negative prompt,
+  reopened the modal, confirmed the field showed the edited value.
+  PASS.
+- **Delete**: removed TempToDelete, confirmed gone from the list.
+  PASS.
+- **Restart persistence**: killed and relaunched the app. Prompt
+  Library still showed exactly `Portrait`/`Anime`/`Landscape`
+  (TempToDelete stayed deleted), and Landscape's `negativePrompt`
+  still contained "EDITED-MARKER" - read directly from
+  `localStorage`, not assumed. PASS.
+
+### 2. Workspace Tabs
+
+- New tab default title: `"New Tab"`. PASS.
+- Selecting "Portrait" renamed the tab to "Portrait" immediately.
+  PASS.
+- Opened a 2nd tab, selected "Portrait" again → `"Portrait (2)"`.
+  Opened a 3rd tab, selected "Portrait" again → `"Portrait (3)"`.
+  PASS, and visually confirmed via a real screenshot (3 tabs reading
+  exactly `Portrait` / `Portrait (2)` / `Portrait (3)`, matching the
+  spec's example verbatim).
+
+### 3. Independent ChatGPT Workspaces
+
+Renamed tab 2 to "Anime" and tab 3 to "Landscape" (re-selecting a
+different Prompt on an already-named tab - confirmed this re-renames
+correctly too, not just first-selection). Generated in all three.
+CDP target list afterward showed 3 distinct webview targets with 3
+distinct, non-overlapping conversation URLs:
+
+```
+Landscape  -> https://chatgpt.com/c/6a700b09-...
+Anime      -> https://chatgpt.com/c/6a700ae3-...
+Portrait   -> https://chatgpt.com/c/6a700ad9-...
+```
+
+No mirroring between tabs - PASS. (Portrait's generation itself hit a
+real bug at the download step - see "4. Generation" and "Known
+Issues" below; its webview and conversation URL were still correctly
+independent of the other two, which is what this section verifies.)
+
+### 4. Generation
+
+Ran the full pipeline (upload real file via `DOM.setFileInputFiles` →
+Generate → wait for terminal status) on all three tabs:
+
+- **Anime**: `Saved`. PASS.
+- **Landscape**: `Saved`. PASS.
+- **Portrait**: `Error` - reproduced twice in a row (initial run and a
+  deliberate retry). Diagnosed precisely, not guessed: connected
+  directly to Portrait's own webview target and inspected the open
+  dialog at the point of failure - `alt="upload.png"`, `aspect-ratio:
+  1/1`, matching the tiny 1x1 test PNG that was uploaded, not a
+  generated result. `buildOpenImageViewerScript()` had clicked the
+  Workspace's own uploaded-image element instead of the actual
+  generated image, because both are served from the same
+  `/backend-api/estuary/content` URL pattern and the script picks
+  "the last matching element in document order" with no way to
+  distinguish which one is the real result. The pipeline's own
+  regression logging (`[Generate] Download button not found: download
+  button not found`) already correctly reflects this failure -
+  nothing about the *reporting* is wrong, the *selector* picked the
+  wrong image. Recorded in ROADMAP Known Issues, not fixed (out of
+  scope for a verification pass; also, per the very first V1.0
+  session's instruction, the download/image-detection code was
+  explicitly off-limits then, and fixing it now wasn't asked for in
+  this release-gate task).
+- No other regression found in upload / prompt insertion / send for
+  any of the three tabs - all three reached "image generation
+  detected" and had their prompt correctly inserted and sent
+  (confirmed via the `[Generate]` log sequence, consistent with this
+  session's live account activity).
+
+### 5. Automatic Saving
+
+- First Anime generation → `★_Anime_001.png` (2,784,230 bytes).
+- First Landscape generation → `★_Landscape_001.png` (2,349,979
+  bytes).
+- **Second** Anime generation (deliberately re-ran to test the
+  increment case the release checklist specifically asked about) →
+  `★_Anime_002.png` (2,889,135 bytes) - `001` was correctly not
+  overwritten, `002` was correctly the next number. All three
+  confirmed via a direct `ls` of the downloads folder, not from
+  application logs. Exactly matches the specified format
+  (`★_{PromptTitle}_{NNN}.png`) with no deviation - nothing to
+  document as "different from expected."
+- Portrait never reached this step this run (blocked upstream by the
+  Known Issue above), so its own increment behavior specifically was
+  not re-verified this session - it was verified in Session 7
+  (`★_Portrait_001.png`, confirmed on disk then) and the increment
+  mechanism itself is shared code, already proven correct via the
+  Anime case above.
+
+### Known issues recorded (personally reproduced only - see ROADMAP
+"Known issues" for the full writeup)
+
+1. Download step can open the uploaded image's viewer instead of the
+   generated result's, when both are present in a conversation's DOM
+   in a particular order - reproduced twice, root-caused precisely,
+   not fixed this session.
+2. Workspace state (open tabs) reset unexpectedly once during this
+   session's extended CDP-driven testing, with no corresponding error
+   in the dev log - Prompt Library was unaffected (correct, since it's
+   independent of Workspace state). Not confirmed to reproduce under
+   normal interactive use; recorded rather than ignored.
+
+Nothing else was found - upload, prompt insertion, tab independence,
+naming/dedup, and Prompt Library CRUD/persistence all worked exactly
+as specified on every attempt.
+
+### Final verification
+
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`, `npx tsc && npx vite
+  build`: all clean (no source changed this session, so this just
+  reconfirms the prior commit's state).
+- `git status --porcelain` after reverting the temporary debug switch:
+  completely empty - zero diff, confirming this was a pure
+  verification pass with no incidental code changes.
