@@ -17,7 +17,7 @@ import { PromptItem } from "../../types/Prompt";
 
 const STATUS_LABEL: Record<Workspace["status"], string> = {
 
-    waiting: "Waiting",
+    waiting: "Ready",
 
     running: "Generating...",
 
@@ -32,8 +32,6 @@ interface WorkspacePanelProps {
     workspace: Workspace;
 
     prompts: PromptItem[];
-
-    running: boolean;
 
     onUploadImage: (dataUrl: string) => void;
 
@@ -50,8 +48,6 @@ export default function WorkspacePanel({
     workspace,
 
     prompts,
-
-    running,
 
     onUploadImage,
 
@@ -250,7 +246,7 @@ export default function WorkspacePanel({
 
                     className="workspace-generate-button"
 
-                    disabled={!workspace.prompt || running}
+                    disabled={!workspace.prompt || workspace.status === "running"}
 
                     onClick={onGenerate}
 

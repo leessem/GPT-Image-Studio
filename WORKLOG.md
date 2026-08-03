@@ -1432,3 +1432,204 @@ as specified on every attempt.
 - `git status --porcelain` after reverting the temporary debug switch:
   completely empty - zero diff, confirming this was a pure
   verification pass with no incidental code changes.
+
+---
+
+## Session 9 (2026-08-03): Applied Version 1.0 light theme polish
+
+Pure visual redesign - dark theme replaced with a light theme matching
+the approved palette (`#F5F5F5` app background, `#FFFFFF` panels,
+`#E5E5E5` borders, `#222222`/`#666666` text, `#2563EB`/`#3B82F6`
+primary button, `#DC2626` danger). No component logic, props, class
+names, or DOM structure changed - only CSS rule content, plus one text
+change (`Toolbar.tsx`: "GPT Image Studio Pro" -> "GPT Image Studio").
+
+**Files touched:** `src/index.css` (simplified to light-only root
+defaults; removed the unused Vite-scaffold `a`/`h1`/generic-`button`
+demo rules after confirming via grep that every real button in the app
+is covered by a more specific class/descendant selector, so nothing
+was left unstyled), `Toolbar.css`/`.tsx`, `Workspace.css`,
+`WorkspaceTabs.css` (inactive tabs blend into the tab-bar background,
+active tab is white with a blue bottom-border indicator - "modern
+browser tab" feel), `WorkspacePanel.css` (status badges got semantic
+light-theme colors: blue/green/red-tinted backgrounds for
+running/done/error), `Prompt.css` (Prompt Library + modal - Save is
+the only filled-blue button, Delete is an outlined danger button,
+Cancel is neutral; added a `.15s` fade-in on the modal overlay per
+"fast fade transitions only"), `Browser.css` (minimized to a thin
+white header so the embedded ChatGPT page blends in rather than
+sitting inside a visibly separate dark container). `Workspace.css`'s
+3-column grid now uses a `1px` gap over an `#E5E5E5` background instead
+of explicit borders on each panel, to keep dividers hairline-thin per
+"avoid heavy borders."
+
+**Verified live (real Electron app, screenshots, not assumed):**
+- Full-window screenshot: white top bar reading "GPT Image Studio"
+  (no "Pro"), tab bar with the active tab shown white-with-blue-
+  underline against a light-gray inactive-tab background, white Prompt
+  Library sidebar, ChatGPT's own (already-white) page blending directly
+  into the layout with only a thin gray header line above it, and a
+  white right panel where Generate is the single blue element in the
+  entire screenshot - every other control (Settings, Upload dropzone,
+  New Prompt, tab close buttons) is neutral gray/white as specified.
+- Prompt modal screenshot: white rounded card, light borders on the
+  Title/Prompt/Negative Prompt fields, Save (filled blue) / Delete
+  (white with red border/text) / Cancel (neutral gray) - matches the
+  requested button hierarchy exactly.
+- Functional smoke test after the restyle: selecting "Anime" from the
+  Prompt dropdown still renamed the Workspace tab to "Anime"
+  immediately (same mechanism as before, now just repainted) - PASS.
+  Modal close-via-Cancel - PASS.
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`, `npx tsc && npx vite
+  build`: all clean.
+- `git diff --stat electron/main.ts`: empty - the temporary
+  `--remote-debugging-port` switch used for this session's screenshots
+  was fully reverted before this state, confirmed via diff.
+
+No functionality was touched - Prompt Library logic, Workspace logic,
+the upload pipeline, prompt insertion, the download pipeline, and the
+independent-WebView architecture are all byte-for-byte unchanged from
+the V1.0 release commit.
+
+Not committed yet, per instruction - holding for explicit go-ahead.
+
+### Follow-up (same session): "too flat" - card-style redesign
+
+The first light-theme pass above was judged too flat once seen live.
+Second iteration, still pure CSS, still no logic/DOM/class-name
+changes: every major area (Prompt Library, ChatGPT Browser, Workspace
+panel) now reads as its own distinct card - `#FFFFFF` background,
+`2px solid #C9CDD3` border, `8px` border-radius, `16px` gap between
+cards over an `#F3F4F6` app background (replacing the previous `1px`
+hairline-gap trick, which was the main source of the "flat" feel).
+Internal section dividers (header/list/footer in the Prompt Library,
+header/body in the Workspace panel and the Browser) now use a distinct
+`#B8BDC5` line, one shade darker than the panel border, so the
+hierarchy reads: app background < panel border < internal divider in
+visual weight. Workspace tabs changed from a bottom-underline to the
+requested top-border indicator (inactive `#ECECEC`, selected white
+with a `3px solid #2563EB` top border). Spacing increased throughout
+(panel padding 20px->24px, panel gap 20px->24px) per "increase
+whitespace between sections."
+
+**Files touched (all CSS, plus reused the same `index.css` root
+background token, updated to the new `#F3F4F6`):** `Workspace.css`,
+`WorkspaceTabs.css`, `Browser.css`, `WorkspacePanel.css`, `Prompt.css`,
+`Toolbar.css` (border color and button radius brought in line with the
+same palette for consistency, not explicitly requested but a one-line
+change per file to avoid the toolbar looking like a leftover from the
+old pass).
+
+**Verified live (real Electron app, screenshots):**
+- Full-window screenshot: three clearly separate white cards visible
+  against the light-gray app background, each with a visible border
+  and rounded corners - Prompt Library (left), ChatGPT Browser
+  (center), Workspace panel (right). "New Tab" shown selected: white
+  background, 3px blue top border, sitting against light-gray
+  (`#ECECEC`) inactive-tab styling. Divider lines visible under the
+  "PROMPT LIBRARY" header and under the "Workspace / Waiting" header.
+  This reads as a desktop application with real panel separation, not
+  a flat webpage - confirmed by direct visual comparison against the
+  previous iteration's screenshot.
+- Modal screenshot (with a card behind it, dimmed): modal itself now
+  has the same `2px` border treatment as the panels, rounded corners,
+  and a visible blue focus ring on the focused Title field - Save
+  (blue) / Delete (red-outlined) / Cancel (neutral) hierarchy
+  unchanged and still correct.
+- Functional smoke test re-run after this second pass: selecting a
+  Prompt still renames the Workspace tab immediately (tested "Anime")
+  - PASS.
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`, `npx tsc && npx vite
+  build`: all clean.
+- `git diff --stat electron/main.ts`: empty after reverting the
+  temporary debug switch again.
+
+Still not committed - both iterations of the theme work are sitting as
+one combined, currently-uncommitted change, holding for explicit
+go-ahead as before.
+
+## Session 10 (2026-08-03): V1.0 final polish - per-Workspace generation state, status dots, Ready lifecycle
+
+Architecture confirmed final ("independent WebView per Workspace" is
+now the official V1.0 architecture) - this session is UX/state polish
+only, no architecture changes. Four fixes, all scoped exactly to the
+Workspace layer:
+
+**1. Independent Generate button state.** Root cause: `Workspace.tsx`
+held a single global `const [running, setRunning] = useState(false)`
+that gated every Workspace's Generate button - Workspace A starting a
+generation disabled B and C's buttons too, even though each Workspace
+already owned its own `status` field. Removed the global flag entirely
+and switched every gate (the `onGenerate` reentrancy guard, and
+`WorkspacePanel`'s Generate button `disabled`) to read
+`workspace.status === "running"` - the field that was already correct
+and already isolated per Workspace, just not being used for this. No
+new state was introduced (`isGenerating`/`isDownloading` collapse into
+the existing `status` enum, as before).
+
+**2. Workspace initial title.** `createWorkspace()` in
+`types/Workspace.ts` now starts a new tab as `"New Workspace"` instead
+of `"New Tab"`. Selecting a Prompt still renames it exactly as before
+(`WorkspaceService.setWorkspacePrompt`, with " (2)", " (3)", ...
+de-dup against sibling tabs) - the tab title remains the Workspace's
+only title, nothing new introduced.
+
+**3. Workspace status indicator.** Added an 8px colored dot
+(`.workspace-tab-status`) to each tab in `WorkspaceTabs.tsx`/`.css`:
+gray = idle (never generated), blue = generating, green =
+completed/ready, red = error. `status` alone can't distinguish "never
+generated" from "ready again after a prior success" (both sit at
+`"waiting"`), so the dot color is derived from `status` plus whether
+`completedAt` has ever been set (`statusDotClass()` helper) rather than
+adding a new field. No emoji, plain CSS circles.
+
+**4. Ready as the resting state.** `generate.ts`'s `runGenerate` used
+to leave a Workspace parked at `status: "done"` indefinitely after a
+successful download. It now waits 1.5s after marking `"done"` (so the
+completed/green confirmation is still visible), then resets to
+`status: "waiting"` and clears `uploadedImagePath` (the consumed
+upload) while leaving `prompt`/`selectedPromptId` untouched, since the
+normal flow is picking a Prompt once and generating several images
+against it. The status dot stays green through this reset (driven by
+`completedAt`, not `status`), so "Ready" reads as a *successful* rest
+state, not a reset-to-blank one. `WorkspacePanel`'s `STATUS_LABEL` for
+`"waiting"` was relabeled from "Waiting" to "Ready" to match.
+
+Explicitly NOT touched: Prompt Library, Prompt persistence, the upload
+pipeline, prompt insertion, the download pipeline, the WebView/
+BrowserPool architecture - byte-for-byte unchanged.
+
+**Verified live (real Electron app + real ChatGPT generations, CDP
+DOM queries and filesystem checks - not logs):**
+- Fresh launch: single tab reads "New Workspace", gray dot, Generate
+  disabled, badge "Ready" - confirmed via screenshot and DOM query.
+- Created three Workspaces, assigned the Portrait/Anime/Landscape
+  Prompt Library templates - tabs renamed to "Portrait"/"Anime"/
+  "Landscape" respectively, no dedup collisions (distinct names),
+  confirmed via screenshot.
+- Clicked Generate on Portrait: immediately confirmed via DOM query -
+  Portrait's own dot turned blue (running), its own Generate button
+  disabled with badge "Generating...", while Anime's dot stayed gray
+  and its Generate button stayed enabled with badge "Ready" - proves
+  the busy state belongs to the Workspace, not the app.
+- Started Anime generating, then - while Anime was still running -
+  switched to Landscape and started it generating too: DOM query
+  confirmed **both** Anime and Landscape dots were blue
+  simultaneously, while Portrait (already finished by then) stayed
+  green - true concurrent independence between three Workspaces, not
+  just before/after independence.
+- Filesystem check of the real Downloads folder confirmed genuine new
+  files landed for each: `★_Portrait_001.png` (1.9MB),
+  `★_Anime_004.png` (2.7MB), `★_Landscape_003.png` (2.9MB), all
+  non-zero and timestamped at the moment each generation actually
+  completed - not just trusting the pipeline's own success logs.
+- After both concurrent generations finished, re-checked all three
+  Workspaces via DOM query: all three show a green dot, badge "Ready",
+  Generate re-enabled, and the selected Prompt still assigned - none
+  left stuck on "Saved"/"Completed", confirming the Task 5 reset.
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`: both clean.
+- `git diff --stat electron/main.ts`: empty - the temporary
+  `--remote-debugging-port` switch used for this session's CDP checks
+  was fully reverted before this entry was written.
+
+Not committed yet, per instruction - holding for explicit go-ahead.

@@ -463,6 +463,23 @@ export async function runGenerate({
 
         console.log("[Generate] ==== done ====");
 
+        // =====================================================================
+        // 7. Ready state: briefly show the completed confirmation, then
+        //    return to "waiting" so the next image can be uploaded right
+        //    away - a Workspace must never stay stuck showing "Completed".
+        //    The Prompt/selectedPromptId stay untouched, since the normal
+        //    flow is picking a Prompt once and generating several images
+        //    with it; only the consumed upload is cleared.
+        // =====================================================================
+
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        onUpdate(w => (
+            w.status === "done"
+                ? { ...w, status: "waiting", uploadedImagePath: undefined }
+                : w
+        ));
+
     }
 
     catch (err) {

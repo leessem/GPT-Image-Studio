@@ -5,7 +5,7 @@ export default function Toolbar() {
     <div className="toolbar">
 
       <div className="toolbar-title">
-        GPT Image Studio Pro
+        GPT Image Studio
       </div>
 
       <div className="toolbar-buttons">

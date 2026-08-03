@@ -25,6 +25,27 @@ interface WorkspaceTabsProps {
 
 }
 
+// Gray = Idle (never generated yet), Blue = Generating, Green =
+// Completed/Ready (including the resting state after a prior successful
+// generation - see generate.ts's return-to-waiting reset), Red = Error.
+// `status` alone can't tell "never generated" and "ready again after a
+// success" apart (both sit at "waiting"), so idle vs. ready is
+// distinguished by whether completedAt has ever been set.
+function statusDotClass(workspace: Workspace): string {
+
+    if (workspace.status === "running")
+        return "running";
+
+    if (workspace.status === "error")
+        return "error";
+
+    if (workspace.status === "done")
+        return "ready";
+
+    return workspace.completedAt ? "ready" : "idle";
+
+}
+
 export default function WorkspaceTabs({
 
     workspaces,
@@ -57,6 +78,8 @@ export default function WorkspaceTabs({
                     onClick={() => onSwitch(workspace.id)}
 
                 >
+
+                    <span className={`workspace-tab-status ${statusDotClass(workspace)}`} />
 
                     <span>{workspace.name}</span>
 

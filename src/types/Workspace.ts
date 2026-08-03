@@ -21,7 +21,7 @@ export interface Workspace {
 
     /**
      * The tab's own title - this IS the Workspace's only title, shown
-     * directly in the top tab bar. Starts as "New Tab", becomes the
+     * directly in the top tab bar. Starts as "New Workspace", becomes the
      * selected Prompt's title the moment one is chosen (see
      * WorkspaceService.setWorkspacePrompt), de-duplicated against sibling
      * Workspace tabs with " (2)", " (3)", ... There is no manual rename
@@ -57,7 +57,7 @@ export function createWorkspace(): Workspace {
 
         id: crypto.randomUUID(),
 
-        name: "New Tab",
+        name: "New Workspace",
 
         prompt: "",
 

@@ -4,9 +4,13 @@
 
     align-items:center;
 
-    background:#222;
+    background:#f3f4f6;
 
-    border-bottom:1px solid #333;
+    border-bottom:1px solid #c9cdd3;
+
+    padding:12px 16px 0;
+
+    gap:6px;
 
 }
 
@@ -18,31 +22,71 @@
 
     gap:8px;
 
-    padding:10px 18px;
+    padding:10px 16px;
 
     cursor:pointer;
 
     user-select:none;
 
-    color:#bbb;
+    color:#666666;
 
-    border-right:1px solid #333;
+    background:#ececec;
 
-    transition:.2s;
+    border:1px solid #c9cdd3;
+
+    border-top:3px solid transparent;
+
+    border-radius:8px 8px 0 0;
+
+    transition:background .15s ease, color .15s ease, border-color .15s ease;
 
 }
 
 .workspace-tab:hover{
 
-    background:#2c2c2c;
+    background:#e2e2e2;
 
 }
 
 .workspace-tab.active{
 
-    background:#356cff;
+    background:#ffffff;
 
-    color:#fff;
+    color:#222222;
+
+    border-top:3px solid #2563eb;
+
+}
+
+.workspace-tab-status{
+
+    width:8px;
+
+    height:8px;
+
+    border-radius:50%;
+
+    flex-shrink:0;
+
+    background:#9ca3af;
+
+}
+
+.workspace-tab-status.running{
+
+    background:#2563eb;
+
+}
+
+.workspace-tab-status.ready{
+
+    background:#16a34a;
+
+}
+
+.workspace-tab-status.error{
+
+    background:#dc2626;
 
 }
 
@@ -54,7 +98,7 @@
 
     color:inherit;
 
-    opacity:.6;
+    opacity:.5;
 
     cursor:pointer;
 
@@ -74,13 +118,13 @@
 
 .workspace-tab-add{
 
-    padding:10px 16px;
+    padding:10px 14px;
 
     background:transparent;
 
     border:none;
 
-    color:#bbb;
+    color:#666666;
 
     cursor:pointer;
 
@@ -88,12 +132,16 @@
 
     line-height:1;
 
+    border-radius:6px;
+
+    transition:background .15s ease;
+
 }
 
 .workspace-tab-add:hover{
 
-    background:#2c2c2c;
+    background:#e2e2e2;
 
-    color:#fff;
+    color:#222222;
 
 }

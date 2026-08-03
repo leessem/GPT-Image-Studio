@@ -12,9 +12,15 @@ transcript):
 
 - ✅ Prompt Library: Create / Edit / Delete, persists across a real
   app restart.
-- ✅ Workspace tabs: new tab starts as "New Tab"; selecting a Prompt
-  renames it immediately; duplicate Prompt selections across tabs
-  produce `Portrait` / `Portrait (2)` / `Portrait (3)`.
+- ✅ Workspace tabs: new tab starts as "New Workspace"; selecting a
+  Prompt renames it immediately; duplicate Prompt selections across
+  tabs produce `Portrait` / `Portrait (2)` / `Portrait (3)`.
+- ✅ Independent Generate/status state per Workspace: Workspace A
+  generating never disables B/C's Generate buttons; each tab shows its
+  own colored status dot (gray idle / blue generating / green ready or
+  completed / red error); a Workspace returns to a green "Ready" state
+  automatically ~1.5s after a successful download instead of staying
+  stuck on "Completed" - see WORKLOG Session 10.
 - ✅ Independent ChatGPT Workspaces: 3 tabs (Portrait/Anime/Landscape)
   each confirmed to own a distinct webview and a distinct, unmirrored
   conversation URL; switching tabs never touches another tab's
@@ -64,6 +70,19 @@ visual appearance (screenshot compared before/after), and a functional
 smoke test (select a Prompt -> tab renames, add a tab, status badge
 text) confirmed the renamed classes are correctly wired, not just
 visually coincidental.
+
+### Step 6: per-Workspace generation state + status dots - DONE (2026-08-03, see WORKLOG Session 10)
+
+Final V1.0 polish pass on top of the already-confirmed architecture -
+no architecture changes. Fixed a global-state bug (Generate button was
+gated by one app-wide `running` boolean instead of each Workspace's own
+`status`), added a small colored status dot per tab (idle/generating/
+ready/error), changed the default tab name to "New Workspace", and
+made a completed Workspace automatically return to a "Ready" resting
+state ~1.5s after its download finishes instead of staying parked on
+"Completed". Verified live with three Workspaces generating - including
+two running **concurrently** - confirmed independent via direct DOM
+queries and real files landing on disk for each.
 
 ### P1 - Settings (not yet built)
 

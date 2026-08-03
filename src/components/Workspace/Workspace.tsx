@@ -45,12 +45,6 @@ export default function Workspace() {
     const browserPoolRef = useRef<BrowserPoolHandle>(null);
 
     // ========================================================================
-    // Generation (current Workspace only - there is no Queue)
-    // ========================================================================
-
-    const [running, setRunning] = useState(false);
-
-    // ========================================================================
     // Workspaces - runtime only, never persisted. Always starts with
     // exactly one Workspace, and always has at least one open.
     // ========================================================================
@@ -110,6 +104,14 @@ export default function Workspace() {
 
     // ========================================================================
     // Generate
+    //
+    // Generation state (isGenerating/isDownloading, both folded into
+    // workspace.status - see generate.ts) belongs ONLY to the Workspace
+    // being generated, never to a global flag - this is what lets Workspace
+    // A generate while Workspace B/C stay independently Ready. The
+    // reentrancy guard below checks *this* Workspace's own status, not a
+    // shared one, so it only ever blocks a Workspace from generating twice
+    // at once - it never blocks a different Workspace.
     // ========================================================================
 
     const onGenerate = async () => {
@@ -121,8 +123,8 @@ export default function Workspace() {
             return;
         }
 
-        if (running) {
-            console.warn("[Generate] Aborted: already generating");
+        if (currentWorkspace.status === "running") {
+            console.warn("[Generate] Aborted: this Workspace is already generating");
             return;
         }
 
@@ -141,10 +143,6 @@ export default function Workspace() {
 
             onUpdate: updater =>
                 setWorkspaces(prev => updateWorkspace(prev, workspace.id, updater)),
-
-            onStart: () => setRunning(true),
-
-            onFinish: () => setRunning(false),
 
             onError: err => console.error(err),
 
@@ -310,8 +308,6 @@ export default function Workspace() {
                     workspace={currentWorkspace}
 
                     prompts={prompts}
-
-                    running={running}
 
                     onUploadImage={onUploadImage}
 

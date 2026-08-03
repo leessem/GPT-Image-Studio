@@ -1,11 +1,13 @@
 .workspace-panel{
     display:flex;
     flex-direction:column;
-    gap:14px;
-    background:#252525;
-    color:white;
-    padding:15px;
+    gap:24px;
+    background:#ffffff;
+    color:#222222;
+    padding:24px;
     overflow:auto;
+    border:2px solid #c9cdd3;
+    border-radius:8px;
 }
 
 .workspace-panel-header{
@@ -13,53 +15,67 @@
     align-items:center;
     justify-content:space-between;
     font-weight:600;
+    font-size:15px;
+    padding-bottom:16px;
+    border-bottom:1px solid #b8bdc5;
 }
 
 .workspace-status-badge{
     font-size:12px;
-    padding:4px 10px;
+    font-weight:600;
+    padding:4px 12px;
     border-radius:12px;
-    background:#444;
+    background:#f3f4f6;
+    color:#666666;
 }
 
 .workspace-status-badge.running{
-    background:#3d6df2;
+    background:#dbeafe;
+    color:#2563eb;
 }
 
 .workspace-status-badge.done{
-    background:#2f8f4e;
+    background:#dcfce7;
+    color:#16a34a;
 }
 
 .workspace-status-badge.error{
-    background:#a13a3a;
+    background:#fee2e2;
+    color:#dc2626;
 }
 
 .workspace-panel-section{
     display:flex;
     flex-direction:column;
-    gap:8px;
+    gap:10px;
 }
 
 .workspace-panel-section-title{
     font-size:12px;
     text-transform:uppercase;
-    color:#999;
+    letter-spacing:.02em;
+    color:#666666;
     font-weight:600;
 }
 
 .workspace-upload-dropzone{
-    border:2px dashed #555;
+    border:1.5px dashed #c9cdd3;
     border-radius:8px;
-    padding:20px;
+    padding:24px;
     text-align:center;
-    color:#888;
+    color:#666666;
     cursor:pointer;
-    transition:.2s;
+    transition:border-color .15s ease, background .15s ease;
+}
+
+.workspace-upload-dropzone:hover{
+    border-color:#2563eb;
+    background:#f5f8ff;
 }
 
 .workspace-upload-dropzone.dragging{
-    border-color:#3d6df2;
-    background:rgba(61,109,242,.08);
+    border-color:#2563eb;
+    background:#eff6ff;
 }
 
 .workspace-upload-input{
@@ -77,47 +93,55 @@
     max-height:180px;
     object-fit:cover;
     border-radius:8px;
+    border:1px solid #c9cdd3;
 }
 
 .workspace-upload-preview button{
-    height:32px;
-    border:none;
-    background:#444;
-    color:white;
+    height:34px;
+    border:1px solid #c9cdd3;
+    background:#f3f4f6;
+    color:#222222;
     cursor:pointer;
-    border-radius:4px;
+    border-radius:8px;
+    transition:background .15s ease;
 }
 
 .workspace-upload-preview button:hover{
-    background:#555;
+    background:#e5e5e5;
 }
 
 .workspace-panel-section select{
-    height:36px;
-    border:none;
+    height:38px;
+    border:1px solid #c9cdd3;
     outline:none;
-    border-radius:5px;
-    background:#1d1d1d;
-    color:white;
+    border-radius:8px;
+    background:#ffffff;
+    color:#222222;
     padding:0 10px;
+    transition:border-color .15s ease;
+}
+
+.workspace-panel-section select:focus{
+    border-color:#2563eb;
 }
 
 .workspace-generate-button{
-    height:40px;
+    height:42px;
     border:none;
-    border-radius:5px;
-    background:#3d6df2;
-    color:white;
+    border-radius:8px;
+    background:#2563eb;
+    color:#ffffff;
     font-weight:600;
     cursor:pointer;
+    transition:background .15s ease;
 }
 
 .workspace-generate-button:hover:not(:disabled){
-    background:#2f5ad1;
+    background:#3b82f6;
 }
 
 .workspace-generate-button:disabled{
-    background:#3a3a3a;
-    color:#777;
+    background:#e5e5e5;
+    color:#999999;
     cursor:not-allowed;
 }
