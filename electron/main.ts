@@ -185,6 +185,8 @@ function createWindow() {
 
     title: "GPT Image Studio",
 
+    icon: path.join(process.env.VITE_PUBLIC, "icon.ico"),
+
     autoHideMenuBar: true,
 
     webPreferences: {

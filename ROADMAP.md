@@ -1,6 +1,6 @@
 # ROADMAP
 
-## Version 1.0 - VERIFIED, PENDING INSTALLER (2026-08-03)
+## Version 1.0 - RELEASED (2026-08-03)
 
 GPT Image Studio is a dedicated ChatGPT Image Generation Studio, not
 a ChatGPT/Project manager. Every feature must make image generation
@@ -273,6 +273,38 @@ of starting fresh - switched to PowerShell's `Get-Process | Stop-Process
 -Force` plus explicit process-start-time verification for every restart
 from here on.
 
+### Step 15: Version 1.0 production release build - DONE (2026-08-03, see WORKLOG Session 19)
+
+Built the final production release via Electron Builder: NSIS installer
+(`GPT Image Studio v1.0.0 Setup.exe`, per-user install, Desktop +
+Start Menu shortcuts, uninstaller) and a portable build (`GPT Image
+Studio v1.0.0 Portable.exe`), both carrying the application icon.
+Fixed two real gaps found during pre-build verification that had never
+been set: `index.html`'s title/favicon were still the untouched Vite
+scaffold defaults, and `BrowserWindow` never had an `icon` property set
+at all - both fixed (`public/icon.ico` added, `index.html` updated,
+`icon:` added to the `BrowserWindow` config). `electron-builder`'s
+Windows packaging step needs the OS to allow unprivileged symbolic-link
+creation (Developer Mode or admin rights) to unpack one of its bundled
+helper-tool archives - enabling Developer Mode resolved this cleanly
+(see Known Issues below, now resolved).
+
+Verified live: ran the actual generated installer (silent `/S` install)
+and confirmed the install directory, `GPT Image Studio.exe` name,
+Desktop shortcut, Start Menu shortcut, and the uninstaller registry
+entry (`GPT Image Studio 1.0.0`, publisher `leessem`) all exist exactly
+as expected; ran the portable exe directly and confirmed it starts
+correctly under its own self-extracted directory. Both were verified
+against a genuinely empty profile (the real `userData` folder was
+safely renamed aside and restored afterward, since this dev machine's
+own `npm run dev` sessions share the same `userData` path with any
+installed/portable build of the same app - expected Electron behavior,
+not a defect) - Settings, Prompt Library, and Work Types all confirmed
+to start empty, and the First Launch Notice appeared and was
+acknowledged correctly on both the installed and portable builds.
+`Release/` contains the two `.exe` artifacts plus `README.txt` and
+`VERSION.txt` with the exact specified content.
+
 ### Known issues (see WORKLOG for exact repro steps and diagnostic
 evidence per session)
 
@@ -307,8 +339,6 @@ evidence per session)
   down when its Workspace/tab is closed; a session with many
   opened-and-abandoned tabs will hold real memory (~250-300MB per
   active webview, measured) until those tabs are closed.
-- `electron-builder` installer packaging fails on this dev machine
-  (needs Windows Developer Mode or admin rights) - not a code defect.
 
 ---
 

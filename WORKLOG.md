@@ -2270,3 +2270,98 @@ prefix simplification, Reset Application Data, the First Launch
 Notice, the Korean Credits/notice text, and this session's doc
 updates - pushed to `origin/main`. No installer built or packaged, per
 explicit instruction; waiting for the next one.
+
+## Session 19 (2026-08-03): Version 1.0 production release build
+
+Built and verified the final Version 1.0 production release. No
+feature changes - only what was required to make the build itself
+correct.
+
+**Pre-build verification found two real gaps and fixed them:**
+- `index.html` still had the untouched Vite scaffold `<title>Vite +
+  React + TS</title>` and a `vite.svg` favicon link - changed to
+  `<title>GPT Image Studio</title>` and `/icon.ico`.
+- `electron/main.ts`'s `BrowserWindow` constructor never had an `icon`
+  property at all, at any point in the project's history - added
+  `icon: path.join(process.env.VITE_PUBLIC, "icon.ico")`, and copied
+  `build/icon.ico` into `public/icon.ico` so Vite bundles it into
+  `dist/` the same way every other static asset already does.
+`tsc --noEmit` and `vite build` both re-confirmed clean after these
+two changes.
+
+**Build configuration:** added a full `electron-builder` config to
+`package.json` - `appId`, `productName: "GPT Image Studio"`,
+`copyright`, `directories.output: "Release"`, `win.icon:
+"build/icon.ico"`, NSIS target (`oneClick: false`,
+`allowToChangeInstallationDirectory: true`, Desktop + Start Menu
+shortcuts, `shortcutName: "GPT Image Studio"`) and a portable target,
+with `artifactName` templates producing exactly `GPT Image Studio
+v1.0.0 Setup.exe` and `GPT Image Studio v1.0.0 Portable.exe`.
+
+**Build blocker, root-caused and resolved:** the first `electron-
+builder --win` run only produced the raw `win-unpacked` folder - no
+installer, no portable exe. The log showed repeated `Cannot create
+symbolic link` errors while extracting a bundled helper-tool archive
+(`winCodeSign`, used for code-signing tooling the build doesn't
+actually need since no certificate is configured, but electron-builder
+unpacks unconditionally). Traced this to Windows requiring either
+Administrator rights or Developer Mode to create symbolic links -
+confirmed via direct inspection of the electron-builder source
+(`app-builder-lib`) and the partially-extracted cache directory (every
+Windows-relevant file inside the archive - `signtool.exe`, `rcedit-
+x64.exe`, etc - had extracted correctly; only two macOS-only `.dylib`
+symlinks failed). This is the same limitation noted in earlier
+sessions' Known Issues. The user enabled Windows Developer Mode
+(Settings > Privacy & Security > For Developers); re-running the exact
+same build afterward succeeded cleanly on the first attempt.
+
+**Verified live (real install, real portable run, on this machine):**
+- Ran the actual generated `GPT Image Studio v1.0.0 Setup.exe` (silent
+  `/S` install) - confirmed the install directory
+  (`%LOCALAPPDATA%\Programs\GPT Image Studio`), the executable name
+  (`GPT Image Studio.exe`), a Desktop shortcut, a Start Menu shortcut,
+  `Uninstall GPT Image Studio.exe`, and a Windows uninstall registry
+  entry (`GPT Image Studio 1.0.0`, Publisher `leessem`, correct
+  `UninstallString`).
+- Since this dev machine's `npm run dev` sessions and any installed/
+  portable build of the same app share one `userData` folder
+  (`%APPDATA%\gpt-image-studio` - ordinary Electron behavior, keyed off
+  `package.json`'s `name`, not dev-vs-packaged), the real `userData`
+  folder was safely renamed aside before each launch and restored
+  immediately after, to test against a genuinely empty profile without
+  touching the real Prompt Library/Settings. Confirmed via direct file
+  inspection: `settings.json` contained no `downloadFolder` or
+  `filenamePrefix` key at all (correct lazy-write behavior - the app
+  never invents saved values it wasn't given), and `Local Storage`'s
+  LevelDB files were freshly created and empty (0 bytes), confirming
+  the Prompt Library and Work Type list both start genuinely empty.
+- The First Launch Notice appeared on both the installed and portable
+  fresh-profile runs; the actively-present real user acknowledged it
+  each time (confirmed directly), after which `settings.json` correctly
+  recorded `firstLaunchNoticeShown: true` - same phenomenon already
+  documented in Session 16/17 (the notice's own logic being correct was
+  never in question; getting an *uninterrupted* look at it live always
+  depends on nobody at the keyboard clicking it first).
+- Ran `GPT Image Studio v1.0.0 Portable.exe` directly (no install
+  step) - confirmed it self-extracts and starts correctly with the
+  correct window title, under the same fresh-profile procedure above.
+- Real `userData` fully restored (byte-identical rename-back, not a
+  reconstruction) after each of the two fresh-profile tests.
+
+**Release folder** (`Release/`) contains exactly: `GPT Image Studio
+v1.0.0 Setup.exe`, `GPT Image Studio v1.0.0 Portable.exe`,
+`README.txt`, and `VERSION.txt` (both with the exact specified
+content) - the incidental electron-builder byproducts (`win-unpacked/`,
+`builder-debug.yml`, the `.blockmap` file, `latest.yml`, and a stale
+`0.0.0/` directory left over from an earlier failed attempt) were all
+removed.
+
+**Documentation:** `WORKLOG.md` (this entry), `ROADMAP.md` (header
+changed to "RELEASED", Step 15 added, the now-resolved Developer Mode/
+symlink limitation removed from Known Issues), and `README.md` all
+updated to reflect Version 1.0 as released.
+
+**Commit:** "Release Version 1.0", covering the icon/title fixes and
+the `electron-builder` configuration in `package.json` - pushed to
+`origin/main`. `Release/` itself is not committed (build output,
+already covered by `.gitignore`'s case-insensitive `release` entry).

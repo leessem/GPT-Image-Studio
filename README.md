@@ -88,10 +88,18 @@ npx vite build                # renderer + electron main/preload bundle only
 npm run build                 # the above, plus electron-builder installer packaging
 ```
 
-`electron-builder` installer packaging (the last step of `npm run
-build`) needs Windows Developer Mode or admin rights on this project's
-primary dev machine - not required for local development or for
-verifying the app itself works.
+`electron-builder`'s Windows packaging step needs Windows Developer
+Mode or admin rights (it unpacks a bundled helper-tool archive that
+requires creating symbolic links) - not required for local development
+or for verifying the app itself works, only for producing the final
+`.exe` installer/portable build.
+
+## Release (Version 1.0.0)
+
+`npm run build` produces, in `Release/`:
+- `GPT Image Studio v1.0.0 Setup.exe` - NSIS installer (Desktop +
+  Start Menu shortcuts, uninstaller)
+- `GPT Image Studio v1.0.0 Portable.exe` - no install required
 
 ## License
 

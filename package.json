@@ -3,6 +3,8 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "author": "leessem",
+  "description": "GPT Image Studio - a dedicated ChatGPT Image Generation Studio",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
@@ -29,5 +31,42 @@
     "vite-plugin-electron": "^0.28.6",
     "vite-plugin-electron-renderer": "^0.14.5"
   },
-  "main": "dist-electron/main.js"
+  "main": "dist-electron/main.js",
+  "build": {
+    "appId": "com.leessem.gptimagestudio",
+    "productName": "GPT Image Studio",
+    "copyright": "Copyright © 2026 leessem",
+    "directories": {
+      "output": "Release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GPT Image Studio",
+      "artifactName": "GPT Image Studio v${version} Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "GPT Image Studio v${version} Portable.${ext}"
+    }
+  }
 }
