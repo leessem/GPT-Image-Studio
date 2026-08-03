@@ -41,12 +41,13 @@ exactly:
 - one persistent `<webview>` (own ChatGPT conversation)
 - one uploaded image
 - one selected Prompt
+- one selected Work Type (at most one, independent per Workspace)
 - its own generation status
 
 Workspace state is **runtime-only and never persisted** - closing the
-app discards every open Workspace. Only the **Prompt Library**
-survives a restart (Settings/download-folder/filename-format
-persistence is planned but not yet built - see P1 below).
+app discards every open Workspace. The **Prompt Library**, the **Work
+Type list**, and Settings (Download Folder, filename Prefix) all
+survive a restart - see Steps 7-9 below.
 
 ```
 Top     Workspace Tabs (tab title = Prompt title, auto-renamed, deduped)
@@ -84,15 +85,65 @@ state ~1.5s after its download finishes instead of staying parked on
 two running **concurrently** - confirmed independent via direct DOM
 queries and real files landing on disk for each.
 
-### P1 - Settings (not yet built)
+### Step 7: Version 1.0 Settings system - DONE (2026-08-03, see WORKLOG Session 11)
 
-The spec requires two persisted settings: Download Folder and Filename
-format. Today these are **hardcoded** in `electron/main.ts`
-(`Downloads/GPT Image Studio`, `★_{PromptTitle}_{NNN}.png`) - fully
-functional, just not user-editable or stored anywhere. Building an
-actual Settings screen (own localStorage-backed store, UI, wiring into
-the download path) is future work; the Settings button in the Toolbar
-is intentionally still disabled ("Coming soon") until then.
+Built the Settings dialog as a workspace-configuration window, not a
+general preferences panel: Download Folder (Browse, auto-create,
+persisted, `📂 Open Folder` shortcut), Prompt Library Backup (Export/
+Import with a Replace/Keep/Rename choice when incoming titles collide -
+never loses an existing prompt), and read-only Application Information
+(app/Electron/Node versions, git commit). Persisted settings now live
+in a small `settings.json` in `app.getPath("userData")`, separate from
+the Prompt Library's own `localStorage` store. Verified live: Download
+Folder survives a full app restart and real generated images land in
+the custom folder; Prompt Library export/import logic verified
+directly against the live store (all three duplicate strategies) plus
+confirmed end-to-end by the user manually clicking through the real
+native dialogs.
+
+### Step 8: simplified filename system - DONE (2026-08-03, see WORKLOG Session 12)
+
+Replaced the fixed `★_{PromptTitle}_{NNN}.png` scheme with **Prefix +
+Prompt Title**, where only the Prefix is user-editable (Settings >
+Filename, default `★_`) and the Prompt Title is always appended
+automatically and never editable. Numbering stays always-numbered-
+from-`001` (every file gets a number, not just the first collision),
+since that keeps filename ordering consistent on disk - no change was
+needed there, `buildAutoFilename` already worked this way. Illegal
+Windows filename characters are stripped and whitespace trimmed on
+both the Prefix and the Prompt Title at save time; an empty title
+falls back to "Untitled" so the filename can never be empty even with
+an empty Prefix. Verified live: changing the Prefix to `IMG_` was
+reflected in a real saved filename (`IMG_Portrait_001.png`), a second
+generation against the same prompt correctly incremented to
+`IMG_Portrait_002.png` without overwriting the first, and the Prefix
+survives a full app restart.
+
+### Step 9: Work Type Management + Settings polish - DONE (2026-08-03, see WORKLOG Session 13)
+
+Added a fully user-managed **Work Type** system (Settings > Work Type
+Management: Add/Edit/Delete/Reorder/Enable-Disable, e.g. a photo
+studio's own 만삭/신생아/50일/백일/돌/주니어 job categories), replacing
+any notion of a fixed category list. Every *enabled* Work Type shows as
+a compact chip in the Workspace panel; at most one is selected per
+Workspace, completely independent of every other Workspace, and the
+selection can be toggled off (no Work Type is a valid state). The
+filename rule became **Prefix + (optional Work Type Prefix) + Prompt
+Title**: the global Prefix's default changed from `★_` to bare `★`,
+with the app itself always inserting the one `_` right after it - a
+Work Type's own prefix (e.g. `만삭_`) supplies its own trailing
+separator and is never given an extra one. Settings was also reworded/
+reorganized to match: "Download Folder" -> "Download" (its in-dialog
+Open Folder button removed entirely - only the Toolbar's `📂 Open
+Folder`, from Session 12, remains), "Prompt Library Backup" -> "Prompt
+Library" with "Backup Prompts"/"Restore Prompts" buttons, a Filename
+**Reset** button, and a small centered **Credits** block at the very
+bottom (`package.json` bumped to `1.0.0` to match). Verified live: the
+spec's own two filename examples were reproduced as real generated
+files - `★_만삭_Portrait_001.png` (Work Type selected) and
+`★_Portrait_001.png` (none selected) - plus full Work Type CRUD/
+reorder/enable-disable and a full-restart persistence check covering
+Download Folder, filename Prefix, and the entire Work Type list.
 
 ### Known issues (all personally reproduced this release, see WORKLOG
 Session 8 for exact repro steps and diagnostic evidence)

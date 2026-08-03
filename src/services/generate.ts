@@ -98,7 +98,8 @@ async function waitForConversationUrl(
  * Strips a Workspace's own de-dup suffix (" (2)", " (3)", ...) so the
  * saved image's filename is based on the pure Prompt title, not on which
  * tab happened to generate it - "Portrait" and "Portrait (2)" both save
- * as "★_Portrait_NNN.png", numbered sequentially on disk.
+ * under the same "Portrait" name (numbered sequentially on disk so
+ * neither ever overwrites the other - see buildAutoFilename in main.ts).
  */
 function baseFileName(workspaceName: string): string {
 
@@ -371,7 +372,8 @@ export async function runGenerate({
 
         window.ipcRenderer.image.armDownload(
             workspace.id,
-            baseFileName(workspace.name)
+            baseFileName(workspace.name),
+            workspace.workTypePrefix ?? ""
         );
 
         const downloadEventPromise = window.ipcRenderer.image.waitForDownload(workspace.id);

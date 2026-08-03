@@ -1,11 +1,12 @@
 // electron/main.ts
 // ===== COMPLETE FILE =====
 
-import { app, BrowserWindow, session } from "electron";
+import { app, BrowserWindow, session, dialog, shell } from "electron";
 import { ipcMain } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
+import { execSync } from "node:child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -38,37 +39,111 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 
 let win: BrowserWindow | null = null;
 
-const generatedImagesDir = path.join(
-  app.getPath("downloads"),
-  "GPT Image Studio"
-);
+// ==============================
+// Settings persistence
+// ==============================
+//
+// V1.0 Settings only persists the Download Folder (the Prompt Library
+// persists separately, via the renderer's own localStorage store).
+// Kept as a small standalone JSON file in userData rather than
+// localStorage, since the main process - not the renderer - is the one
+// that needs this value (it owns the download-redirect logic below).
+
+const settingsFilePath = path.join(app.getPath("userData"), "settings.json");
+
+interface PersistedSettings {
+  downloadFolder?: string;
+  filenamePrefix?: string;
+}
+
+function loadSettings(): PersistedSettings {
+  try {
+    const raw = fs.readFileSync(settingsFilePath, "utf-8");
+    const parsed = JSON.parse(raw) as unknown;
+
+    if (parsed && typeof parsed === "object") {
+      return parsed as PersistedSettings;
+    }
+  }
+  catch {
+    // no settings file yet, or it's corrupt - fall back to defaults
+  }
+
+  return {};
+}
+
+function saveSettings(settings: PersistedSettings): void {
+  fs.writeFileSync(
+    settingsFilePath,
+    JSON.stringify(settings, null, 2),
+    "utf-8"
+  );
+}
+
+const persistedSettings = loadSettings();
+
+let generatedImagesDir =
+  persistedSettings.downloadFolder ??
+  path.join(app.getPath("downloads"), "GPT Image Studio");
+
+// V1.0 filename system: {Prefix}_{Work Type Prefix?}{Prompt Title}_{NNN}.png.
+// Only the global Prefix is user-configurable (Settings > Filename,
+// default "★"); the Prompt Title is always appended automatically and
+// is never editable. The Work Type Prefix is optional, chosen per
+// Workspace (Settings > Work Type Management), and already includes
+// its own trailing separator if the user typed one (e.g. "만삭_") -
+// the app only ever inserts the ONE separator right after the global
+// Prefix, never between the Work Type Prefix and the Prompt Title.
+let filenamePrefix = persistedSettings.filenamePrefix ?? "★";
 
 interface PendingDownload {
   id: string;
   baseName: string;
+  workTypePrefix: string;
 }
 
 let pendingDownload: PendingDownload | null = null;
 
 /**
- * V1.0 automatic saving: "★_{PromptTitle}_{NNN}.png", numbered
- * sequentially against whatever already exists on disk for that same
- * base name - never overwrites, never asks the user to rename anything.
+ * Strips illegal Windows filename characters and surrounding
+ * whitespace. Used on the Prefix, the Work Type Prefix, and the Prompt
+ * Title, since all three are free user text.
  */
-function buildAutoFilename(dir: string, baseName: string): string {
+function sanitizeFilenamePart(value: string): string {
+  return value.replace(/[\\/:*?"<>|]/g, "_").trim();
+}
 
-  const safeName =
-    baseName.replace(/[\\/:*?"<>|]/g, "_").trim() || "Untitled";
+/**
+ * "{Prefix}_{Work Type Prefix?}{Prompt Title}_{NNN}.png", numbered
+ * sequentially from 001 against whatever already exists on disk for
+ * that same name - every file is numbered (not just the first
+ * collision) so filenames sort consistently, and numbering never
+ * overwrites an existing file. An empty title falls back to "Untitled"
+ * so the filename can never be empty even if the Prefix is also empty.
+ */
+function buildAutoFilename(
+  dir: string,
+  baseName: string,
+  workTypePrefix: string
+): string {
+
+  const safeName = sanitizeFilenamePart(baseName) || "Untitled";
+
+  const safePrefix = sanitizeFilenamePart(filenamePrefix);
+
+  const safeWorkTypePrefix = sanitizeFilenamePart(workTypePrefix);
 
   let n = 1;
 
-  let candidate = `★_${safeName}_${String(n).padStart(3, "0")}.png`;
+  let candidate =
+    `${safePrefix}_${safeWorkTypePrefix}${safeName}_${String(n).padStart(3, "0")}.png`;
 
   while (fs.existsSync(path.join(dir, candidate))) {
 
     n++;
 
-    candidate = `★_${safeName}_${String(n).padStart(3, "0")}.png`;
+    candidate =
+      `${safePrefix}_${safeWorkTypePrefix}${safeName}_${String(n).padStart(3, "0")}.png`;
 
   }
 
@@ -142,7 +217,8 @@ app.whenReady().then(() => {
 
     const fileName = buildAutoFilename(
       generatedImagesDir,
-      pending?.baseName ?? "Untitled"
+      pending?.baseName ?? "Untitled",
+      pending?.workTypePrefix ?? ""
     );
 
     const filePath = path.join(generatedImagesDir, fileName);
@@ -175,8 +251,8 @@ app.whenReady().then(() => {
 
   ipcMain.on(
     "image:armDownload",
-    (event, id: string, baseName: string) => {
-      pendingDownload = { id, baseName };
+    (event, id: string, baseName: string, workTypePrefix: string) => {
+      pendingDownload = { id, baseName, workTypePrefix };
 
       event.returnValue = true;
     }
@@ -210,6 +286,139 @@ app.whenReady().then(() => {
       return { exists: false, size: 0 };
     }
   );
+
+  // ===============================
+  // Settings
+  // ===============================
+
+  ipcMain.handle("settings:getDownloadFolder", () => generatedImagesDir);
+
+  ipcMain.handle("settings:browseDownloadFolder", async () => {
+    if (!win) {
+      return { success: false };
+    }
+
+    const result = await dialog.showOpenDialog(win, {
+      properties: ["openDirectory", "createDirectory"],
+    });
+
+    if (result.canceled || !result.filePaths[0]) {
+      return { success: false, canceled: true };
+    }
+
+    const folder = result.filePaths[0];
+
+    if (!fs.existsSync(folder)) {
+      fs.mkdirSync(folder, { recursive: true });
+    }
+
+    generatedImagesDir = folder;
+
+    persistedSettings.downloadFolder = folder;
+
+    saveSettings(persistedSettings);
+
+    return { success: true, folder };
+  });
+
+  ipcMain.handle("settings:getFilenamePrefix", () => filenamePrefix);
+
+  ipcMain.handle("settings:setFilenamePrefix", (_, prefix: string) => {
+    filenamePrefix = prefix;
+
+    persistedSettings.filenamePrefix = prefix;
+
+    saveSettings(persistedSettings);
+
+    return { success: true };
+  });
+
+  ipcMain.handle("settings:openDownloadFolder", async () => {
+    if (!fs.existsSync(generatedImagesDir)) {
+      fs.mkdirSync(generatedImagesDir, { recursive: true });
+    }
+
+    const result = await shell.openPath(generatedImagesDir);
+
+    return { success: result === "", error: result || null };
+  });
+
+  ipcMain.handle("settings:getAppInfo", () => {
+    let gitCommit: string | null = null;
+
+    try {
+      gitCommit = execSync("git rev-parse --short HEAD", {
+        cwd: process.env.APP_ROOT,
+        stdio: ["ignore", "pipe", "ignore"],
+      })
+        .toString()
+        .trim();
+    }
+    catch {
+      gitCommit = null;
+    }
+
+    return {
+      appVersion: app.getVersion(),
+      electronVersion: process.versions.electron,
+      nodeVersion: process.versions.node,
+      gitCommit,
+    };
+  });
+
+  // ===============================
+  // Prompt Library Backup
+  // ===============================
+
+  ipcMain.handle(
+    "promptLibrary:export",
+    async (_, json: string) => {
+      if (!win) {
+        return { success: false };
+      }
+
+      const result = await dialog.showSaveDialog(win, {
+        defaultPath: "prompt-library.json",
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { success: false, canceled: true };
+      }
+
+      fs.writeFileSync(result.filePath, json, "utf-8");
+
+      return { success: true, filePath: result.filePath };
+    }
+  );
+
+  ipcMain.handle("promptLibrary:import", async () => {
+    if (!win) {
+      return { success: false };
+    }
+
+    const result = await dialog.showOpenDialog(win, {
+      properties: ["openFile"],
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+
+    if (result.canceled || !result.filePaths[0]) {
+      return { success: false, canceled: true };
+    }
+
+    try {
+      const raw = fs.readFileSync(result.filePaths[0], "utf-8");
+      const data = JSON.parse(raw) as unknown;
+
+      return { success: true, data };
+    }
+    catch {
+      return {
+        success: false,
+        error: "Could not read or parse the selected file.",
+      };
+    }
+  });
 
   createWindow();
 });

@@ -49,6 +49,18 @@ export interface Workspace {
      *  its first successful send and reused on every later Generate. */
     conversationUrl?: string;
 
+    /**
+     * Which Settings > Work Type Management entry this Workspace has
+     * selected, if any - at most one, independent per Workspace.
+     * `workTypePrefix` is a denormalized snapshot of that Work Type's
+     * filenamePrefix at selection time (same reasoning as `prompt`
+     * alongside `selectedPromptId`), so a later edit/delete in Settings
+     * never changes what an already-selected Workspace saves with.
+     */
+    workTypeId?: string;
+
+    workTypePrefix?: string;
+
 }
 
 export function createWorkspace(): Workspace {

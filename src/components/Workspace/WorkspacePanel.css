@@ -125,6 +125,34 @@
     border-color:#2563eb;
 }
 
+.workspace-worktype-chips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+}
+
+.workspace-worktype-chip{
+    height:26px;
+    padding:0 12px;
+    border:1px solid #c9cdd3;
+    border-radius:13px;
+    background:#f3f4f6;
+    color:#666666;
+    font-size:12px;
+    cursor:pointer;
+    transition:background .15s ease, color .15s ease, border-color .15s ease;
+}
+
+.workspace-worktype-chip:hover{
+    background:#e5e5e5;
+}
+
+.workspace-worktype-chip.active{
+    background:#eff6ff;
+    border-color:#2563eb;
+    color:#2563eb;
+}
+
 .workspace-generate-button{
     height:42px;
     border:none;

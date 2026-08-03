@@ -119,6 +119,33 @@ export function setWorkspacePrompt(
 
 }
 
+/**
+ * Assigns (or clears, when workTypeId is undefined) a Workspace's
+ * selected Work Type - independent per Workspace, at most one at a
+ * time. `workTypePrefix` is captured alongside the id so this
+ * Workspace keeps using it even if that Work Type is later edited or
+ * deleted in Settings.
+ */
+export function setWorkspaceWorkType(
+
+    workspaces: Workspace[],
+
+    id: string,
+
+    workTypeId: string | undefined,
+
+    workTypePrefix: string | undefined
+
+): Workspace[] {
+
+    return updateWorkspace(
+        workspaces,
+        id,
+        w => ({ ...w, workTypeId, workTypePrefix })
+    );
+
+}
+
 export function setWorkspaceUploadedImage(
 
     workspaces: Workspace[],

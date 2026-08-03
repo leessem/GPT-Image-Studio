@@ -1632,4 +1632,238 @@ DOM queries and filesystem checks - not logs):**
   `--remote-debugging-port` switch used for this session's CDP checks
   was fully reverted before this entry was written.
 
+## Session 11 (2026-08-03): Version 1.0 Settings system
+
+Built the Settings dialog exactly to spec: a workspace-configuration
+window, not a general preferences panel - every section directly
+serves the image generation workflow, nothing else. Four sections:
+Download Folder, Prompt Library Backup, Filename Format (documented as
+read-only for this session; superseded by Session 12 below the same
+day), and read-only Application Information.
+
+**Main process (`electron/main.ts`):** added a small standalone
+`settings.json` in `app.getPath("userData")` - separate from the
+Prompt Library's own `localStorage` store, since the main process (not
+the renderer) owns the download-redirect logic and needs this value
+directly. `generatedImagesDir` became a mutable `let`, seeded from
+persisted settings with the old hardcoded
+`Downloads/GPT Image Studio` as fallback. New IPC handlers:
+`settings:getDownloadFolder`, `settings:browseDownloadFolder` (native
+folder picker + auto-create + persist), `settings:openDownloadFolder`
+(`shell.openPath`), `settings:getAppInfo` (app/Electron/Node versions +
+`git rev-parse --short HEAD`, `null` if unavailable), and
+`promptLibrary:export`/`promptLibrary:import` (native Save/Open
+dialogs around a plain JSON read/write).
+
+**Prompt Library Backup (`src/store/Promptstore.ts`):** added
+`exportPayload()` (Title/Prompt/Negative Prompt only - no id/
+timestamps) and `importPayload(items, strategy)` where `strategy` is
+`"replace" | "keep" | "rename"`, applied uniformly to every title that
+collides with an existing one; non-colliding incoming prompts are
+always added regardless of strategy - a user's prompts are never lost
+by importing. Added `isValidExportPayload()` so an unrelated or
+hand-edited JSON file is rejected outright instead of partially
+imported, mirroring the existing `isValidPromptItem` localStorage
+guard.
+
+**Verified live:**
+- Download Folder: confirmed via direct filesystem check that a real
+  Browse selection persists to `settings.json`, survives a full app
+  kill+relaunch (Settings dialog still showed the custom folder after
+  restart), and that real generated images actually landed in the new
+  folder (not the old default) - proving `generatedImagesDir` itself,
+  not just the displayed value, was redirected.
+- Open Folder: confirmed via Win32 window enumeration that a real
+  Explorer window opened at the exact configured folder.
+- Prompt Library export/import *logic*: since the native Save/Open
+  file dialogs never rendered a visible OS window under CDP-only
+  automation in this sandboxed session (confirmed via full-system
+  window enumeration - nothing appeared, unlike the folder-picker and
+  `shell.openPath`, which did work when triggered by a real user),
+  `PromptStore.exportPayload()`/`importPayload()`/`isValidExportPayload()`
+  were instead exercised directly against the live singleton (via a
+  dynamic `import()` of the running module, confirmed to be the same
+  instance already backing the UI) using disposable `ZZTEST_*` titles,
+  then cleaned up so the real library was left byte-for-byte unchanged.
+  All three duplicate strategies behaved exactly as documented: "Keep"
+  left the original's content untouched, "Replace" updated it in place
+  (same id), "Rename" added a deduped second entry without touching the
+  original.
+- The user then manually clicked through the real Export -> delete a
+  Prompt -> Import flow themselves in the running app and confirmed it
+  worked end-to-end (their own exported `prompt-library.json`, with the
+  correct Title/Prompt/Negative Prompt shape, was found on disk).
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`: both clean.
+
+## Session 12 (2026-08-03): Simplified filename system
+
+Replaced the fixed, hardcoded `★_{PromptTitle}_{NNN}.png` scheme (and
+the read-only "Filename Format" info block from Session 11) with a
+much simpler, user-configurable one: **Prefix + Prompt Title**, where
+only the Prefix is editable and the Prompt Title is always appended
+automatically and is never editable. Numbering keeps the existing
+always-numbered-from-`001` scheme (every file gets a number, not just
+the first collision) since that's the option that keeps filename
+ordering consistent on disk - this required no logic change, since
+`buildAutoFilename` already worked this way.
+
+**Main process (`electron/main.ts`):** added `filenamePrefix` to the
+same `settings.json` persisted-settings object as the Download Folder
+(default `"★_"`, matching the prior hardcoded value so existing users
+see no change until they edit it). Extracted a `sanitizeFilenamePart()`
+helper (strips illegal Windows filename characters, trims whitespace)
+and applied it to **both** the Prefix and the Prompt Title at the
+moment a filename is built - the raw, unsanitized Prefix is what's
+persisted and shown while editing, so Settings reflects exactly what
+the user typed; sanitization happens once, at save time, same as the
+Prompt Title already worked. An empty title still falls back to
+`"Untitled"`, which guarantees the filename can never be empty even if
+the Prefix is also cleared to nothing. New IPC handlers:
+`settings:getFilenamePrefix`, `settings:setFilenamePrefix`.
+
+**Settings dialog:** the old read-only "Filename Format" section was
+replaced with a "Filename" section containing a single `Prefix` text
+input and a live `Preview` (e.g. `★_Portrait_001.png`) that updates on
+every keystroke using a small preview-only sanitizer mirroring the
+main process's real one.
+
+**Toolbar:** added a dedicated `📂 Open Folder` button directly on the
+main toolbar, beside a relabeled `⚙ Settings` button - both now open
+directly from the toolbar without going through the Settings dialog
+first for the folder-open case.
+
+**Verified live (real Electron app, real ChatGPT generations,
+filesystem checks - not logs):**
+- Changed the Prefix from `★_` to `IMG_` in Settings: the Preview
+  updated instantly to `IMG_Portrait_001.png`, confirmed persisted to
+  `settings.json`, and confirmed to survive a full app kill+relaunch
+  (Settings still showed `IMG_` after restart).
+- Selected the Portrait prompt and generated a real image: the actual
+  downloaded file was `IMG_Portrait_001.png` (2.09MB) - the new prefix
+  was genuinely used for the real save, not just shown in the preview.
+- Generated a second image against the same prompt without changing
+  anything: the workspace correctly showed "Ready"/Generate-enabled
+  beforehand (Session 10's auto-reset), and the second file saved as
+  `IMG_Portrait_002.png` (2.07MB) - confirmed both files exist
+  independently on disk with different sizes/timestamps, proving the
+  numbering incremented correctly and neither file was overwritten.
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`: both clean.
+- `git diff --stat electron/main.ts`/`grep remote-debugging-port`:
+  confirmed the temporary CDP debug switch used for this session's
+  verification was fully reverted before this entry was written.
+
+Not committed yet - Sessions 11 and 12 are both sitting as uncommitted
+work pending explicit go-ahead.
+
 Not committed yet, per instruction - holding for explicit go-ahead.
+
+## Session 13 (2026-08-03): Work Type Management + Settings polish for a production workflow
+
+Reframed Settings as a production tool's workspace configuration
+window (per the user: "GPT Image Studio is a production tool designed
+for professional image generation workflows") and added the one
+missing piece requested this session: a fully user-manageable **Work
+Type** system (e.g. a photo studio's 만삭/신생아/50일/백일/돌/주니어
+job categories - the user's own real examples), replacing the idea of
+a fixed category list entirely.
+
+**New: `src/types/WorkType.ts` + `src/store/WorkTypeStore.ts`.** A
+`WorkType` is `{ id, displayName, filenamePrefix, enabled }`, persisted
+in its own `localStorage` key, same singleton-store pattern as
+`PromptStore` (validated on load, never trusts stale data blindly).
+Supports `create`/`update`/`remove`/`setEnabled`/`moveUp`/`moveDown` -
+reordering is a simple neighbor-swap (no drag-and-drop dependency
+needed for "keep it simple").
+
+**Workspace-level Work Type selection.** `types/Workspace.ts` gained
+`workTypeId?`/`workTypePrefix?`, following the exact same denormalized-
+snapshot pattern already used for `selectedPromptId`/`prompt` - a
+Workspace keeps using the Work Type prefix it had selected even if that
+Work Type is later edited or deleted in Settings.
+`WorkspaceService.setWorkspaceWorkType()` mirrors `setWorkspacePrompt()`.
+`WorkspacePanel` renders every **enabled** Work Type as a compact chip
+(`workspace-worktype-chip` - 26px tall, pill-shaped, muted gray/blue,
+not a full-size button) in a new "Work Type" section between Prompt
+and Generate; clicking the already-selected chip again deselects it -
+"no Work Type selected" is a valid, documented state. Only one chip can
+be active per Workspace, and each Workspace's selection is completely
+independent (same isolation guarantee as Generate state/status from
+Session 10).
+
+**Filename system, revised formula.** The user redefined the rule as
+**Prefix + (optional Work Type Prefix) + Prompt Title**, with the
+default global Prefix changed from `"★_"` to bare `"★"` - the app now
+always inserts exactly one `_` right after the (sanitized) global
+Prefix itself; a Work Type's own prefix (e.g. `"만삭_"`) already
+carries its own trailing separator as typed by the user, so it's
+concatenated directly with no extra separator before the Prompt Title.
+`electron/main.ts`'s `buildAutoFilename()` signature gained a
+`workTypePrefix` parameter reflecting this; `PendingDownload` and the
+`image:armDownload` IPC channel (both `preload.ts` and the renderer
+call in `generate.ts`) now carry `workspace.workTypePrefix` through to
+the save step. Numbering itself is unchanged (`buildAutoFilename` still
+numbers every file from 001, sequentially, per the existing on-disk
+scan). Settings' Filename section gained a **Reset** button
+(`handlePrefixChange("★")`) and the live Preview formula was updated to
+match (`{prefix}_Portrait_001.png`), with a short note explaining where
+a Work Type prefix gets inserted.
+
+**Settings reorganized to match the new section names/wording exactly:**
+"Download Folder" -> "Download" (its in-dialog "Open Folder" button was
+removed entirely - Toolbar's own `📂 Open Folder` button, added in
+Session 12, is now the only place it lives, per this session's explicit
+"Do NOT place Open Folder inside Settings"). "Prompt Library Backup" ->
+"Prompt Library", buttons renamed "Export/Import Prompt Library" ->
+"Backup Prompts"/"Restore Prompts" (same underlying export/import/
+duplicate-resolution logic, unchanged). New "Work Type Management"
+section (add/edit/reorder/enable-disable list + an inline add/edit
+form, same show/hide-on-demand pattern as the Prompt Library's modal).
+New **Credits** section at the very bottom - centered, small (11px)
+muted text, no hyperlinks, `Version {app.getVersion()}` rather than a
+second hardcoded literal so it can never silently drift from
+Application Information's own version string above it (`package.json`
+bumped `0.0.0` -> `1.0.0` to match, since this *is* the V1.0 release).
+
+**Verified live (real Electron app, real ChatGPT generations,
+filesystem checks - not logs):**
+- Settings sections appear in the exact requested order and wording:
+  Download / Prompt Library / Work Type Management / Filename /
+  Application Information, with Credits below - confirmed via DOM
+  query and screenshot. Download section has only "Browse..." (no
+  Open Folder); Prompt Library has "Backup Prompts"/"Restore Prompts".
+- Reset button: confirmed via IPC round-trip that clicking it persists
+  bare `"★"`, overriding whatever was previously typed.
+- Work Type CRUD, live: added "만삭"/"만삭_" - appeared immediately as
+  a chip in the Workspace panel. Added a second, "신생아"/"신생아_" -
+  confirmed order `["만삭","신생아"]`. Moved 신생아 up - confirmed
+  order became `["신생아","만삭"]`. Edited 만삭 -> "만삭테스트" -
+  confirmed the rename applied without moving its position. Disabled
+  "만삭테스트" - confirmed its chip disappeared from the Workspace
+  panel while "신생아"'s stayed. Deleted "만삭테스트" - confirmed it's
+  gone from the list entirely.
+- Workspace independence: selecting a chip toggles `active` on that
+  chip only; clicking it again deselects - confirmed via DOM query.
+- Real end-to-end filename generation, both documented cases: with
+  "만삭" selected, Generate produced **`★_만삭_Portrait_001.png`** -
+  the exact literal example from the spec, confirmed as a real,
+  non-zero (1.9MB) file on disk. With no Work Type selected, Generate
+  produced **`★_Portrait_001.png`** - the other documented example,
+  also confirmed as a real file.
+- Full-restart persistence: killed and relaunched the app; Download
+  Folder, Filename Prefix, and the full Work Type list (names,
+  prefixes, order, enabled state) were all still correct afterward -
+  confirmed via DOM query and screenshot.
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`: both clean.
+- `grep remote-debugging-port electron/main.ts`: confirmed the
+  temporary CDP debug switch used for this session's verification was
+  fully reverted before this entry was written.
+
+One process note: mid-session the running dev instance stopped
+unexpectedly between two automated checks (not an intentional kill),
+and separately the Work Type list was found to have changed between
+two checks in a way this session's own scripts didn't cause - most
+likely the user interactively using the live app in parallel with this
+session's own CDP-driven testing (Settings and the Workspace chips are
+ordinary UI, so both can legitimately drive the same running instance
+at once). Neither affected the verification above, since each check
+re-read live state rather than assuming a prior result still held.

@@ -16,6 +16,7 @@ import legacyPrompts from "../data/prompts.json";
 import {
     LegacyPromptItem,
     PromptDraft,
+    PromptExportItem,
     PromptItem,
 } from "../types/Prompt";
 
@@ -70,6 +71,27 @@ function isValidPromptItem(value: unknown): value is PromptItem {
         typeof item.negativePrompt === "string" &&
         typeof item.createdAt === "string" &&
         typeof item.updatedAt === "string"
+    );
+
+}
+
+/**
+ * Settings > Prompt Library Backup > Import: never trust a file picked
+ * off disk blindly, same reasoning as `isValidPromptItem` above for
+ * localStorage - a hand-edited or unrelated JSON file must be rejected
+ * outright instead of partially imported.
+ */
+export function isValidExportPayload(value: unknown): value is PromptExportItem[] {
+
+    if (!Array.isArray(value))
+        return false;
+
+    return value.every(entry =>
+        entry &&
+        typeof entry === "object" &&
+        typeof (entry as PromptExportItem).title === "string" &&
+        typeof (entry as PromptExportItem).prompt === "string" &&
+        typeof (entry as PromptExportItem).negativePrompt === "string"
     );
 
 }
@@ -201,6 +223,107 @@ class PromptStoreImpl {
     remove(id: string): void {
 
         this.items = this.items.filter(item => item.id !== id);
+
+        this.persist();
+
+    }
+
+    /**
+     * Settings > Prompt Library Backup > Export - only Title/Prompt/
+     * Negative Prompt, per spec (no id/timestamps, those are re-assigned
+     * fresh on import).
+     */
+    exportPayload(): PromptExportItem[] {
+
+        return this.items.map(({ title, prompt, negativePrompt }) => ({
+            title,
+            prompt,
+            negativePrompt,
+        }));
+
+    }
+
+    /**
+     * Settings > Prompt Library Backup > Import. `duplicateStrategy`
+     * applies uniformly to every incoming title that collides with an
+     * existing one - the caller resolves this once per import (see
+     * Settings.tsx), not once per conflicting prompt, to keep the UI
+     * simple. Non-colliding incoming prompts are always added
+     * regardless of the chosen strategy - a user's prompts are never
+     * lost by importing.
+     */
+    importPayload(
+        incoming: PromptExportItem[],
+        duplicateStrategy: "replace" | "keep" | "rename"
+    ): void {
+
+        const now = new Date().toISOString();
+
+        const items = [...this.items];
+
+        for (const entry of incoming) {
+
+            const existingIndex = items.findIndex(
+                item => item.title === entry.title
+            );
+
+            if (existingIndex === -1) {
+
+                items.push({
+                    id: crypto.randomUUID(),
+                    title: entry.title,
+                    prompt: entry.prompt,
+                    negativePrompt: entry.negativePrompt,
+                    createdAt: now,
+                    updatedAt: now,
+                });
+
+                continue;
+
+            }
+
+            if (duplicateStrategy === "keep")
+                continue;
+
+            if (duplicateStrategy === "replace") {
+
+                items[existingIndex] = {
+                    ...items[existingIndex],
+                    prompt: entry.prompt,
+                    negativePrompt: entry.negativePrompt,
+                    updatedAt: now,
+                };
+
+                continue;
+
+            }
+
+            // rename: keep the existing prompt untouched, add the
+            // incoming one under a de-duplicated title instead.
+            let n = 2;
+
+            let renamedTitle = `${entry.title} (${n})`;
+
+            while (items.some(item => item.title === renamedTitle)) {
+
+                n++;
+
+                renamedTitle = `${entry.title} (${n})`;
+
+            }
+
+            items.push({
+                id: crypto.randomUUID(),
+                title: renamedTitle,
+                prompt: entry.prompt,
+                negativePrompt: entry.negativePrompt,
+                createdAt: now,
+                updatedAt: now,
+            });
+
+        }
+
+        this.items = items;
 
         this.persist();
 

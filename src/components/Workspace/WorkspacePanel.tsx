@@ -14,6 +14,7 @@ import "./WorkspacePanel.css";
 
 import { Workspace } from "../../types/Workspace";
 import { PromptItem } from "../../types/Prompt";
+import { WorkType } from "../../types/WorkType";
 
 const STATUS_LABEL: Record<Workspace["status"], string> = {
 
@@ -33,11 +34,15 @@ interface WorkspacePanelProps {
 
     prompts: PromptItem[];
 
+    workTypes: WorkType[];
+
     onUploadImage: (dataUrl: string) => void;
 
     onRemoveImage: () => void;
 
     onSelectPrompt: (promptId: string) => void;
+
+    onSelectWorkType: (workTypeId: string) => void;
 
     onGenerate: () => void;
 
@@ -49,11 +54,15 @@ export default function WorkspacePanel({
 
     prompts,
 
+    workTypes,
+
     onUploadImage,
 
     onRemoveImage,
 
     onSelectPrompt,
+
+    onSelectWorkType,
 
     onGenerate,
 
@@ -235,6 +244,50 @@ export default function WorkspacePanel({
                 </select>
 
             </div>
+
+            {/* ---------------------------------------------------------
+                Work Type - at most one selected, independent per
+                Workspace. Compact chips, not full-size buttons.
+            ---------------------------------------------------------- */}
+
+            {workTypes.length > 0 && (
+
+                <div className="workspace-panel-section">
+
+                    <div className="workspace-panel-section-title">
+
+                        Work Type
+
+                    </div>
+
+                    <div className="workspace-worktype-chips">
+
+                        {workTypes.map(workType => (
+
+                            <button
+
+                                key={workType.id}
+
+                                className={
+                                    "workspace-worktype-chip" +
+                                    (workspace.workTypeId === workType.id ? " active" : "")
+                                }
+
+                                onClick={() => onSelectWorkType(workType.id)}
+
+                            >
+
+                                {workType.displayName}
+
+                            </button>
+
+                        ))}
+
+                    </div>
+
+                </div>
+
+            )}
 
             {/* ---------------------------------------------------------
                 Generate

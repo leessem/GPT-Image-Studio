@@ -17,10 +17,12 @@ import WorkspacePanel from "./WorkspacePanel";
 
 import { type Workspace, createWorkspace } from "../../types/Workspace";
 import { PromptDraft, PromptItem } from "../../types/Prompt";
+import { WorkType } from "../../types/WorkType";
 
 import { runGenerate } from "../../services/generate";
 
 import PromptStore from "../../store/Promptstore";
+import WorkTypeStore from "../../store/WorkTypeStore";
 
 import {
     getCurrentWorkspace,
@@ -28,6 +30,7 @@ import {
     deleteWorkspace,
     updateWorkspace,
     setWorkspacePrompt,
+    setWorkspaceWorkType,
     setWorkspaceUploadedImage,
 } from "../../services/WorkspaceService";
 
@@ -101,6 +104,21 @@ export default function Workspace() {
     const [prompts, setPrompts] = useState<PromptItem[]>(
         () => PromptStore.getAll()
     );
+
+    // ========================================================================
+    // Work Type Management
+    //
+    // WorkTypeStore is the single source of truth (Settings > Work Type
+    // Management) - this is just a rendering cache, re-synced after every
+    // mutation. Only enabled Work Types are ever shown as chips in the
+    // Workspace panel.
+    // ========================================================================
+
+    const [workTypes, setWorkTypes] = useState<WorkType[]>(
+        () => WorkTypeStore.getAll()
+    );
+
+    const enabledWorkTypes = workTypes.filter(workType => workType.enabled);
 
     // ========================================================================
     // Generate
@@ -217,6 +235,30 @@ export default function Workspace() {
 
     };
 
+    // Clicking the already-selected chip again deselects it - "No Work
+    // Type selected" is a valid, documented state (see the Filename
+    // section of Settings), not just an unreachable default.
+    const onSelectWorkType = (workTypeId: string) => {
+
+        const next = currentWorkspace.workTypeId === workTypeId
+            ? undefined
+            : workTypeId;
+
+        const workType = next
+            ? workTypes.find(w => w.id === next)
+            : undefined;
+
+        setWorkspaces(prev =>
+            setWorkspaceWorkType(
+                prev,
+                currentWorkspace.id,
+                next,
+                workType?.filenamePrefix
+            )
+        );
+
+    };
+
     // ========================================================================
     // Prompt Library (template management only)
     // ========================================================================
@@ -253,7 +295,13 @@ export default function Workspace() {
                 Toolbar
             ================================================================ */}
 
-            <Toolbar />
+            <Toolbar
+
+                onPromptLibraryChanged={() => setPrompts(PromptStore.getAll())}
+
+                onWorkTypesChanged={() => setWorkTypes(WorkTypeStore.getAll())}
+
+            />
 
             {/* ===============================================================
                 Workspace Tabs
@@ -309,11 +357,15 @@ export default function Workspace() {
 
                     prompts={prompts}
 
+                    workTypes={enabledWorkTypes}
+
                     onUploadImage={onUploadImage}
 
                     onRemoveImage={onRemoveImage}
 
                     onSelectPrompt={onSelectPrompt}
+
+                    onSelectWorkType={onSelectWorkType}
 
                     onGenerate={onGenerate}
 
