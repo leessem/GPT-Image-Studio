@@ -51,8 +51,7 @@ function migrateLegacyPrompt(legacy: LegacyPromptItem): PromptItem {
 
 /**
  * Never trust localStorage blindly - stale/legacy-shaped data must fall
- * back to a default instead of being used as-is (see ProjectStorage for
- * the same rule applied to Project data).
+ * back to a default instead of being used as-is.
  */
 function isValidPromptItem(value: unknown): value is PromptItem {
 

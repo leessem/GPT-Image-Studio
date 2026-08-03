@@ -1,52 +1,53 @@
 // ============================================================================
-// File : src/components/Job/JobDetail.tsx
+// File : src/components/Workspace/WorkspacePanel.tsx
 //
-// Per-Job session view under the Job-first architecture: upload an
-// image, select a prompt from the Prompt Library, Generate, watch
-// status, see the result - all scoped to one Job.
+// V1.0: the right-hand panel for the current Workspace - Prompt select,
+// Image Upload, Generate, Status. Nothing else (no Result/history section
+// - every generated image is auto-saved to disk, there is nothing to
+// browse here). Always shows the current Workspace directly - there is no
+// separate Job to select, no empty state, since a Workspace always exists.
 // ============================================================================
 
 import { useRef, useState } from "react";
 
-import "./JobDetail.css";
+import "./WorkspacePanel.css";
 
-import { Job } from "../../types/Job";
+import { Workspace } from "../../types/Workspace";
 import { PromptItem } from "../../types/Prompt";
-import { toFileUrl } from "../../utils/fileUrl";
 
-const STATUS_LABEL: Record<Job["status"], string> = {
+const STATUS_LABEL: Record<Workspace["status"], string> = {
 
     waiting: "Waiting",
 
     running: "Generating...",
 
-    done: "Done",
+    done: "Saved",
 
     error: "Error",
 
 };
 
-interface JobDetailProps {
+interface WorkspacePanelProps {
 
-    job: Job | null;
+    workspace: Workspace;
 
     prompts: PromptItem[];
 
     running: boolean;
 
-    onUploadImage: (jobId: string, dataUrl: string) => void;
+    onUploadImage: (dataUrl: string) => void;
 
-    onRemoveImage: (jobId: string) => void;
+    onRemoveImage: () => void;
 
-    onSelectPrompt: (jobId: string, promptId: string) => void;
+    onSelectPrompt: (promptId: string) => void;
 
-    onGenerate: (jobId: string) => void;
+    onGenerate: () => void;
 
 }
 
-export default function JobDetail({
+export default function WorkspacePanel({
 
-    job,
+    workspace,
 
     prompts,
 
@@ -60,25 +61,11 @@ export default function JobDetail({
 
     onGenerate,
 
-}: JobDetailProps) {
+}: WorkspacePanelProps) {
 
     const [isDragging, setIsDragging] = useState(false);
 
     const inputRef = useRef<HTMLInputElement>(null);
-
-    if (!job) {
-
-        return (
-
-            <div className="job-detail job-detail-empty">
-
-                Select or create a job.
-
-            </div>
-
-        );
-
-    }
 
     const addFile = (files: FileList | null) => {
 
@@ -91,7 +78,7 @@ export default function JobDetail({
 
         reader.onload = () => {
 
-            onUploadImage(job.id, reader.result as string);
+            onUploadImage(reader.result as string);
 
         };
 
@@ -129,39 +116,35 @@ export default function JobDetail({
 
             <div className="job-detail-header">
 
-                <span>Job Detail</span>
+                <span>Workspace</span>
 
-                <span className={`job-status-badge ${job.status}`}>
+                <span className={`job-status-badge ${workspace.status}`}>
 
-                    {STATUS_LABEL[job.status]}
+                    {STATUS_LABEL[workspace.status]}
 
                 </span>
 
             </div>
 
             {/* ---------------------------------------------------------
-                1. Upload Image
+                Upload Image
             ---------------------------------------------------------- */}
 
             <div className="job-detail-section">
 
                 <div className="job-detail-section-title">
 
-                    Uploaded Image
+                    Image
 
                 </div>
 
-                {job.uploadedImagePath ? (
+                {workspace.uploadedImagePath ? (
 
                     <div className="job-upload-preview">
 
-                        <img src={job.uploadedImagePath} alt="Uploaded" />
+                        <img src={workspace.uploadedImagePath} alt="Uploaded" />
 
-                        <button
-
-                            onClick={() => onRemoveImage(job.id)}
-
-                        >
+                        <button onClick={onRemoveImage}>
 
                             Remove
 
@@ -211,7 +194,7 @@ export default function JobDetail({
             </div>
 
             {/* ---------------------------------------------------------
-                2. Select Prompt
+                Select Prompt
             ---------------------------------------------------------- */}
 
             <div className="job-detail-section">
@@ -224,14 +207,14 @@ export default function JobDetail({
 
                 <select
 
-                    value={job.selectedPromptId ?? ""}
+                    value={workspace.selectedPromptId ?? ""}
 
                     onChange={e => {
 
                         const promptId = e.target.value;
 
                         if (promptId)
-                            onSelectPrompt(job.id, promptId);
+                            onSelectPrompt(promptId);
 
                     }}
 
@@ -255,20 +238,10 @@ export default function JobDetail({
 
                 </select>
 
-                {job.prompt && (
-
-                    <div className="job-prompt-preview">
-
-                        {job.prompt}
-
-                    </div>
-
-                )}
-
             </div>
 
             {/* ---------------------------------------------------------
-                3. Generate
+                Generate
             ---------------------------------------------------------- */}
 
             <div className="job-detail-section">
@@ -277,51 +250,15 @@ export default function JobDetail({
 
                     className="job-generate-button"
 
-                    disabled={!job.prompt || running}
+                    disabled={!workspace.prompt || running}
 
-                    onClick={() => onGenerate(job.id)}
+                    onClick={onGenerate}
 
                 >
 
                     Generate
 
                 </button>
-
-            </div>
-
-            {/* ---------------------------------------------------------
-                4. Result (auto-saved by QueueRunner into job.imagePath)
-            ---------------------------------------------------------- */}
-
-            <div className="job-detail-section job-detail-result">
-
-                <div className="job-detail-section-title">
-
-                    Result
-
-                </div>
-
-                {job.imagePath ? (
-
-                    <img
-
-                        className="job-result-image"
-
-                        src={toFileUrl(job.imagePath)}
-
-                        alt="Generated"
-
-                    />
-
-                ) : (
-
-                    <div className="job-result-empty">
-
-                        No result yet.
-
-                    </div>
-
-                )}
 
             </div>
 

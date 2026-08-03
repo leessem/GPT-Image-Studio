@@ -534,3 +534,727 @@ ChatGPT account - not simulated):**
   run: create two Jobs, generate on each, confirm they end up with two
   different `conversationUrl` values and that switching between them in
   the UI actually shows two different ChatGPT conversations.
+
+---
+
+## Session 4 (2026-08-03): Prompt Library modal redesign, automatic Job
+naming, and the upload pipeline bug finally fixed (confirmed live)
+
+Scope for this session, per instruction: UI refinement (Prompt Library
+becomes a titles-only list + modal, Job Detail drops the full prompt-text
+preview in favor of a dropdown, Jobs are automatically named/renamed from
+their selected Prompt) plus resuming yesterday's cut-short upload
+investigation. Job model, PromptStore persistence mechanics, download
+automation, session/login handling, and the core queue pipeline were
+explicitly not to be redesigned.
+
+### Prompt Library: titles-only list + Create/Edit modal
+
+- `PromptEditor.tsx` (the always-visible inline editor) is gone entirely
+  - replaced by `PromptModal.tsx`, opened from `PromptLibrary.tsx`'s
+    title rows or its new "+ New Prompt" footer button. Same modal
+    component serves both Create ("New Prompt" title, Save/Cancel) and
+    Edit ("Edit Prompt" title, Save/Delete/Cancel, `window.confirm`
+    before delete) - mode is just a prop.
+  - `PromptLibrary.tsx` now renders titles only, nothing else.
+  - `Prompt.tsx` owns which-prompt-is-being-edited as local state (was
+    previously threaded down from `Workspace.tsx` as
+    `selectedPromptId`/`selectedPrompt`) - `Workspace.tsx` lost that
+    state and its `onSelectPrompt`/`onNewPrompt` handlers, since nothing
+    outside the Prompt Library needs to know which prompt is mid-edit
+    anymore. `PromptStore` itself (create/update/remove + localStorage
+    persistence) is untouched.
+
+### Job Detail: dropdown only, no full prompt text
+
+- Removed the `.job-prompt-preview` block that echoed the selected
+  prompt's full text under the dropdown. The dropdown itself (already
+  wired to `onSelectPrompt` -> `JobService.setJobPrompt`) is unchanged.
+
+### Automatic Job naming (no manual rename)
+
+- `Job` gained a required `title: string` (both `defaultJobs.ts` seed
+  files updated to match). `JobService.createJob()` defaults it to
+  `"New Prompt"`.
+- `JobService.setJobPrompt()` now also computes the Job's `title`: the
+  selected Prompt's own title, or `"<title> (N)"` if N-1 sibling Jobs in
+  the same tab already have that same `selectedPromptId` (counted fresh
+  on every call, so re-selecting the same prompt on the same Job is
+  idempotent - it doesn't drift upward). `JobList.tsx` now renders
+  `job.title` directly instead of slicing `job.prompt`.
+
+### Verification (Prompt Library / Job Detail / naming)
+
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`, `npx tsc && npx vite
+  build`: all clean.
+- Live-driven, not just typechecked: launched the app with a temporary
+  `--remote-debugging-port` (reverted before this commit, same
+  established technique as prior sessions) and drove the actual running
+  main-window renderer via raw CDP `Runtime.evaluate` calls (no ChatGPT
+  login needed for this part) - clicked through the real UI exactly as a
+  user would: opened the New Prompt modal, created a prompt, confirmed
+  the Library refreshed immediately; opened it again in Edit mode,
+  confirmed the fields were pre-filled, edited it, confirmed the Library
+  updated; deleted it (auto-accepting the real `window.confirm` dialog
+  via CDP's `Page.javascriptDialogOpening` -> `handleJavaScriptDialog`),
+  confirmed it disappeared. Created two Jobs and selected the same
+  Prompt on both - confirmed the first became `"<title>"` and the second
+  `"<title> (2)"`, and that `.job-prompt-preview` no longer exists in the
+  DOM. 17/17 scripted checks passed.
+- Restarted the app (killed and relaunched) and re-checked: the deleted
+  prompt stayed deleted - `PromptStore`'s persistence survives a real
+  restart, as required. (Separately noticed Job/Project state itself did
+  *not* survive a hard `taskkill /F` in one restart attempt - traced to
+  a pre-existing ~18MB `localStorage` entry, an old test Job carrying a
+  full base64 JPEG in `uploadedImagePath` from months-old testing, plus
+  Chromium's write-to-disk for `localStorage.setItem` not being
+  synchronous - a hard kill can race an in-flight large write. Not
+  caused by this session's changes, not in this session's required
+  scope (only Prompt-restart-persistence was), left as-is and flagged
+  here rather than silently ignored.)
+
+### Upload pipeline: root cause found and fixed (two real bugs, both
+confirmed live, neither guessed)
+
+Resuming yesterday's cut-short investigation. Reused the same
+diagnostic technique as prior sessions (temporary
+`--remote-debugging-port`, reverted before commit) but went further:
+instead of driving the app's UI to reach the upload code path,
+connected CDP directly to the real `chatgpt.com` guest target and ran
+the exact production `buildUploadImageScript`/`buildWaitUploadScript`
+functions (bundled straight from `ChatGPT.ts` with esbuild, not
+reimplemented) against a real test image - isolating the upload logic
+itself from Job/React/webview plumbing entirely.
+
+**Bug 1 - confirmed:** `buildUploadImageScript`'s `await
+fetch(dataUrl)` throws `TypeError: Failed to fetch` on the real page -
+ChatGPT's CSP blocks it, confirming yesterday's leading-but-unconfirmed
+hypothesis. Fixed by decoding the base64 payload directly via `atob()`
+into a `Blob`/`File`, which never touches the network and so isn't
+subject to `connect-src` at all.
+
+**Bug 2 - found only after fixing Bug 1, also confirmed live:** with
+Bug 1 fixed, the drag/drop simulation onto the composer form turned out
+to be non-deterministic - two identical live runs from the same
+starting state produced two different real outcomes (one silently
+never attached the file, the other triggered ChatGPT navigating to a
+brand-new conversation URL mid-upload). Live DOM inspection
+(`domSnapshot`) revealed ChatGPT's composer already renders its own
+real `<input type="file" id="upload-photos" accept="image/*">` (used by
+its native "add photos" button) - switched the injection to set
+`.files` on that real input via a `DataTransfer` (the standard,
+spec-supported way to script a file input) and dispatch `change`, which
+was reliable across every subsequent run.
+
+**Bug 3 - found while confirming Bug 2's fix, also confirmed live:**
+`buildWaitUploadScript` compared "current image count in the composer"
+against a "baseline" - but that baseline is captured at the *start of
+its own, separate* `executeJavaScript` call, which in production always
+runs *after* `buildUploadImageScript`'s call already completed. If the
+thumbnail rendered before this second call started (the common case),
+the baseline already included it, so the ">" comparison could never be
+true - a structural bug, not a selector problem. Also confirmed live
+that `fileInput.files` gets cleared by ChatGPT's own code right after
+it ingests the file (`inputFilesLength: 0` immediately after a
+successful upload), ruling that out as a completion signal too. Live
+DOM capture of an actually-successful upload showed ChatGPT renders the
+attached file as `<img src="https://chatgpt.com/backend-api/estuary/
+content?id=...">` with `aria-label="파일 2 제거: cdp-diag-test.png"`
+("Remove file: cdp-diag-test.png") - the exact same host/path pattern
+`ChatGPT.ts` already trusts elsewhere for generated images
+(`GENERATED_IMAGE_SELECTOR`). Rewrote the wait to poll for
+`img[src*="/backend-api/estuary/content"]` inside the composer directly
+instead of any baseline-count comparison.
+
+**Live verification (real account, real chatgpt.com, not simulated):**
+ran the fixed `buildUploadImageScript` -> `buildWaitUploadScript` pair
+twice from a fresh "new chat" state - both times: control found, file
+injected, real ChatGPT-hosted thumbnail detected, "upload completed".
+Then, on the second run, also ran the existing (unmodified)
+`buildPromptScript` against that same uploaded-image conversation:
+prompt inserted, send button clicked, message accepted
+(`acceptedBy: "textarea-empty"`) - confirms the fix doesn't just inject
+the file but that the existing, untouched send/prompt-insertion path
+still works correctly with an image attached. (This did send one real
+test message - `"say hi in exactly 2 words"` with a 1x1 test PNG - into
+a real, new ChatGPT conversation; not cleaned up, left for the user to
+delete if desired.) Download/prompt-insertion/image-detection code was
+not modified, per instruction - only `buildUploadImageScript` and
+`buildWaitUploadScript` changed.
+
+### Final verification (whole session)
+
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`, `npx tsc && npx vite
+  build`: all clean.
+- `git diff --stat electron/main.ts`: empty - the temporary
+  `--remote-debugging-port` switch used for both halves of this
+  session's live verification was fully reverted before this commit,
+  confirmed via diff, not just by memory.
+- Every finding in this session (the CSP-blocked fetch, the
+  non-deterministic drag/drop, the stale-baseline wait bug, the real
+  file-input/thumbnail selectors) came from live CDP capture against
+  the real `chatgpt.com` DOM - none were guessed.
+
+---
+
+## Session 5 (2026-08-03): Stabilization pass - 3 reported bugs, 1 real
+root cause found and fixed, 2 could not be reproduced
+
+Scope for this session: fix ONLY the three reported runtime bugs below,
+no redesign/refactor, no new features, download pipeline / Prompt
+Library / Settings untouched. Verified each live in the running
+Electron app before moving to the next, per instruction.
+
+### Environment note that shaped this whole session
+
+The dev app kept exiting on its own, unprompted, roughly every 1-3
+minutes throughout this session. Traced (via Windows Application Error
+event log - no faulting module recorded, so not a native crash) to
+**stray `electron.exe`/`node.exe` processes from repeated test
+relaunches fighting over the same `--remote-debugging-port 9222`,
+`localhost:5173`, and userData cache directory** (`bind() returned an
+error`, `Unable to create cache` in the raw process log once actually
+inspected) - the exact process-hygiene issue Session 3's WORKLOG had
+already flagged, now confirmed as the direct cause of several
+mid-session false leads (see Bug #3 below). Fully killing every
+`electron.exe`/`node.exe` before each relaunch eliminated it. This is
+almost certainly specific to how this session repeatedly relaunched the
+app for testing, not something the end user would necessarily hit
+running the app normally - noted here rather than silently ignored.
+
+### Bug #1 (reported): Job title not updating after selecting a Prompt
+
+**Could not reproduce.** Re-verified the exact code path from the prior
+session (`JobDetail.tsx`'s `<select>` -> `Workspace.onSelectJobPrompt`
+-> `JobService.setJobPrompt`) is unchanged and correct, then drove it
+live twice against a clean app instance: (1) create a Job, select a
+Prompt - title updated immediately and correctly; (2) select a
+*different* Prompt on an already-selected Job - title updated correctly
+again, no staleness. Both PASS. No code changed for this bug - the
+logic already does exactly what was expected. Most likely explanation
+given the environment note above: an interaction landed on a silently-
+dead window and looked like nothing happened.
+
+### Bug #2 (reported): Prompt never inserted after a successful upload
+
+**Could not reproduce.** Drove the actual production pipeline end to
+end (not a bypassed script call this time): created a Job via the real
+UI, attached a real file via `DOM.setFileInputFiles` on the app's own
+upload `<input>`, selected a Prompt, clicked the real Generate button,
+and captured console output from both the main renderer and the
+ChatGPT guest simultaneously. Full sequence observed: upload injected ->
+upload preview detected -> upload completed -> **prompt inserted -> send
+button enabled -> send clicked -> message accepted**. The job did end in
+`error`, but at the **download** step (`download button not found`,
+empty candidate list) - explicitly out of scope per instruction ("Do
+NOT modify the download pipeline"), not the prompt-insertion step the
+bug report described. No code changed for this bug.
+
+### Bug #3 (reported, confirmed real): switching Jobs does not restore
+that Job's own conversation
+
+**Root cause found and fixed**, live-verified, not guessed.
+
+Added the requested instrumentation first (`Workspace.tsx`'s Job-switch
+effect now logs `[JobSwitch] activating job` with jobId/conversationUrl/
+currentBrowserUrl/targetUrl, and `[JobSwitch] navigation complete` with
+the resulting URL). Live testing with this instrumentation showed the
+switch-navigation effect itself was firing correctly and calling
+`loadURL()` with the right target every time - the bug was **upstream**,
+in what URL gets captured as a Job's `conversationUrl` in the first
+place:
+
+- `QueueRunner.ts`'s `waitForConversationUrl()` polls the webview's URL
+  after Send and accepts the first one matching `/\/c\//`. Live capture
+  showed ChatGPT briefly routes to a **client-side-only placeholder URL**
+  immediately after Send, of the form `/c/WEB:<client-generated-id>`,
+  before the server assigns and swaps in the real permanent id (a plain
+  `/c/<uuid>`, no `WEB:` prefix). The old regex matched the placeholder
+  on its very first poll and returned immediately, so Jobs were having
+  this placeholder saved as their `conversationUrl`.
+- Confirmed live, directly: navigating to a captured `/c/WEB:...` URL
+  redirects to `https://chatgpt.com/` (the home/new-chat page) within
+  about a second - **indistinguishable from a Job that never
+  generated**, which is exactly the reported symptom ("Job B shows
+  exactly the same conversation as Job A" - both were actually showing
+  the same *fresh new chat*, not literally the same conversation).
+- Fix: `waitForConversationUrl()` now explicitly skips `/c/WEB:` URLs
+  and keeps polling until a real one appears (`/\/c\//.test(url) &&
+  !/\/c\/WEB:/.test(url)`), with a log line either way (`skipping
+  client-side placeholder URL` / `real conversation URL captured`) so
+  this is visible on every future run, not just this diagnostic.
+- **No change to login/session/partition handling** - still exactly one
+  shared `<webview>`, one shared partition, one shared login, per
+  instruction. Only which URL gets *recorded* as a Job's conversation
+  changed.
+
+**A mid-session false lead worth recording:** an early version of this
+test (before the process-hygiene issue above was understood) produced a
+`Cannot read properties of undefined (reading 'click')` DOM error and
+wildly inconsistent job counts between consecutive queries against what
+was assumed to be the same running instance - actually two different
+stray processes both listening/half-listening on the debug port at
+once. Fully killing all `electron.exe`/`node.exe` and relaunching once
+resolved it; the subsequent clean, single-instance runs were fully
+reproducible and consistent.
+
+**Live verification (real account, real chatgpt.com):**
+1. Before the fix: Job A generated for real, captured
+   `.../c/WEB:2294c1ba-...` as its `conversationUrl`. Switching to Job B
+   correctly showed a different (fresh) page. Switching back to Job A:
+   the webview briefly showed the *correct* target URL at +500ms/+1000ms,
+   then silently reverted to `https://chatgpt.com/` by +2000ms - matching
+   the direct-navigation redirect test above almost exactly. **FAIL**,
+   confirmed live before touching any code.
+2. After the fix: Job A generated for real (log shows the placeholder
+   URL skipped ~10 times, then the real `/c/6a6fedb9-...` URL captured
+   and saved - this run also happened to complete the full pipeline
+   including download, unlike the flaky run in Bug #2's test). Switching
+   to Job B showed a different page; switching back to Job A restored
+   the exact correct URL, stably, checked at +500ms through +5000ms and
+   across two more A/B round-trips. **PASS**, every time.
+
+### Files modified this session
+
+- `src/components/Queue/QueueRunner.ts` - `waitForConversationUrl()`
+  fix (Bug #3) plus its new log lines. Nothing else in this file
+  touched.
+- `src/components/Workspace/Workspace.tsx` - added `[JobSwitch]`
+  logging to the existing Job-switch navigation effect (instrumentation
+  only, no behavior change - the effect's logic is byte-for-byte the
+  same, just wrapped with `console.log` before/after).
+- No other files changed this session. Prompt Library, Settings, the
+  download pipeline, and every other part of the app are untouched.
+
+### Verification (whole session)
+
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`, `npx tsc && npx vite
+  build`: all clean.
+- `git diff --stat electron/main.ts`: empty - the temporary
+  `--remote-debugging-port` switch was reverted before this commit,
+  confirmed via diff.
+- All three bugs were tested against the live, real Electron app with a
+  real ChatGPT login (not simulated) per instruction; Bug #3's fix was
+  verified with a full generate -> switch -> switch-back cycle,
+  multiple times.
+
+### Remaining known issues (not fixed, out of scope this session)
+
+- **Download step is flaky**: one live run this session hit "download
+  button not found" (empty candidate list) on a job that otherwise
+  completed the entire pipeline correctly; a later run of the same kind
+  of job completed the download successfully. Explicitly out of scope
+  ("Do NOT modify the download pipeline") - flagged for a future
+  session, not investigated further here.
+- **Job/Project `localStorage` persistence across an abrupt process
+  kill** remains unreliable for large payloads (see Session 4) - not
+  touched this session either, still a real gap if the app is ever
+  force-killed mid-write.
+- The app's tendency to exit unexpectedly when several instances
+  accumulate (see the environment note above) was worked around, not
+  fixed - there's no code change in this repo that would prevent it,
+  since it's caused by how this session repeatedly relaunched the app
+  for testing rather than anything the shipped app does to itself.
+
+---
+
+## Session 6 (2026-08-03): fixed prompt insertion for real, then a
+deliberate architecture change - one persistent WebView per Job
+
+### Part 1: Prompt insertion (Bug #1) - the real fix, this time verified
+against actual sent message content, not log return values
+
+Session 5's live-log-based verification of prompt insertion turned out
+to be a false positive - `buildPromptScript` reported `success: true,
+acceptedBy: "textarea-empty"` even when no text was actually sent.
+Re-investigated from scratch per instruction: reproduce visually first,
+don't trust logs.
+
+- **Reproduced live, visually**: a real screenshot of the running app
+  showed ChatGPT's actual reply - *"I received the uploaded image, but
+  it appears to be a 1×1 pixel file with no visible content... tell me
+  what you'd like to help with"* - proof no prompt text arrived, despite
+  the pipeline logging every step as successful.
+- **Root cause, found by instrumenting the real insertion code**:
+  ChatGPT's composer is a ProseMirror-based rich-text editor.
+  `buildInsertPromptTextSnippet` manually mutated the DOM (`innerHTML`,
+  a synthetic `beforeinput`/`input` `InputEvent`), which fools two
+  superficial signals - the composer visibly shows the text, and
+  ChatGPT's send button appears/enables - but ProseMirror's own internal
+  transactional document model (what Send actually reads) never
+  registers a synthetic `InputEvent` with no real native
+  `getTargetRanges()` data. Confirmed by checking the *actual rendered
+  message text* after send, not the script's return value: empty, every
+  time, with the raw-DOM-mutation approach.
+- **Fix**: replaced the DOM mutation with a simulated `paste`
+  `ClipboardEvent` carrying the prompt as `text/plain`. ChatGPT's real
+  paste-handling pipeline runs this through ProseMirror's normal
+  transaction system. Verified live, repeatedly, including through the
+  exact production call sequence (`buildUploadImageScript` ->
+  `buildWaitUploadScript` -> `buildPromptScript`, called separately just
+  like `QueueRunner.ts` calls them): the actual sent message now
+  contains the real prompt text, and a real screenshot of the running
+  app shows the message bubble with the correct text and a completed
+  generation.
+- File modified: `src/components/Browser/ChatGPT.ts`
+  (`buildInsertPromptTextSnippet`) only.
+- Bug #2 (Job title not renaming) and Bug #3 (Jobs sharing a
+  conversation), also re-reported this session as still broken, were
+  investigated but not reproduced under the architecture in place at the
+  time - see Part 2, which replaces that architecture entirely and
+  re-verifies both behaviors under the new one.
+
+### Part 2: Architecture change - one persistent WebView per Job
+
+After Part 1 landed, a joint architecture review (see the conversation
+transcript, not reproduced here) concluded the single-shared-`<webview>`
+design - however well the URL-capture bug was fixed - has a structural
+ceiling: it can only guarantee Job isolation when Job interactions are
+strictly serialized, because `Workspace.tsx`'s switch effect and
+`QueueRunner.ts`'s per-job activation step both call `loadURL()`/
+`execute()` on the *same* shared webview with no coordination between
+them. Decision: adopt one persistent `<webview>` per Job, all on the
+same partition (`persist:gpt-image-studio` - one login, unchanged),
+instead of one shared webview navigated between conversations.
+
+**`src/components/Browser/Browser.tsx` - rewritten as a WebView
+registry (`BrowserPool`):**
+- Keeps a `jobIds: string[]` state array; renders one `<webview
+  partition="persist:gpt-image-studio">` per id in that array, each
+  hidden via `style={{ display: jobId === activeJobId ? "inline-flex" :
+  "none" }}` - a pure CSS show/hide, the DOM node itself is never
+  touched by switching.
+- New `BrowserPoolHandle` (replaces the old single-webview
+  `BrowserHandle` as the ref surface): `ensure(jobId, initialUrl?)` -
+  creates that Job's webview if it doesn't exist yet (adding it to
+  `jobIds`, which mounts a new `<webview>`), waits for its `dom-ready`
+  event, then - only if this is a *brand new* webview and `initialUrl`
+  was given (a Job's saved `conversationUrl`) - navigates it there once;
+  resolves with a `BrowserHandle` scoped to that Job's webview either
+  way. Idempotent: calling `ensure()` again for a Job that already has a
+  ready webview returns immediately, touches nothing. `get(jobId)` -
+  synchronous lookup, never creates. `destroy(jobId)` - unmounts that
+  Job's webview and clears all its bookkeeping (only called on Job
+  delete).
+- `BrowserHandle` itself (`execute`/`reload`/`goBack`/`goForward`/
+  `loadURL`/`getCurrentUrl`) is unchanged in shape - each is now just
+  bound to one specific Job's webview element instead of the single
+  shared one, so `QueueRunner.ts`'s actual script-execution code needed
+  no changes at all.
+- Ref-callback pitfall avoided deliberately: an inline arrow function
+  passed as `ref={el => ...}` gets a new identity every render, which
+  makes React tear down and re-attach the ref on every re-render even
+  though the underlying DOM node hasn't changed - this would have
+  re-run the `dom-ready` wiring repeatedly. Fixed by caching one stable
+  ref-callback per jobId in a `Map`, created once on first appearance.
+
+**`src/components/Queue/QueueRunner.ts`:**
+- `QueueRunnerOptions.browser: BrowserHandle` replaced with
+  `getBrowser: (job: Job) => Promise<BrowserHandle>`.
+- The old "Activate Job" step (`await browser.loadURL(targetUrl)`)
+  is gone - navigation now only ever happens once, inside
+  `BrowserPool.ensure()`, at webview-creation time. Step 1 now just
+  resolves `const browser = await getBrowser(currentJob)` and proceeds;
+  Step 2 (composer-ready) is unchanged and still necessary, since a
+  freshly-created webview isn't guaranteed to be finished loading the
+  instant `ensure()` resolves.
+- Every other step in the loop (upload, prompt insertion, send, wait
+  for generation, download, verify, close viewer) is unchanged - they
+  already just called `browser.execute(...)` on whatever `browser` was
+  in scope, so resolving a different (per-job) handle per iteration
+  required no changes below Step 1.
+
+**`src/components/Workspace/Workspace.tsx`:**
+- `browserRef: RefObject<BrowserHandle>` -> `browserPoolRef:
+  RefObject<BrowserPoolHandle>`; `<Browser ref={browserRef} />` ->
+  `<BrowserPool ref={browserPoolRef} activeJobId={selectedJobId} />`.
+- The Job-switch `useEffect` no longer navigates anything - it now only
+  calls `browserPoolRef.current.ensure(selectedJobId,
+  job?.conversationUrl)`, which is a no-op if that Job's webview already
+  exists. Visibility is driven entirely by the `activeJobId` prop.
+- `startQueue()` and `onGenerateJob()` now pass `getBrowser: job =>
+  browserPoolRef.current!.ensure(job.id, job.conversationUrl)` into
+  `runQueue()` instead of a fixed `browser` handle - this is what lets a
+  tab-wide "Start Queue" run correctly create/resolve a different
+  webview for each job in the queue as its turn comes up.
+- `onDeleteJob()` now also calls `browserPoolRef.current?.destroy(id)`.
+
+**Nothing else changed** - Prompt Library, the Prompt modal, the
+download pipeline, `ProjectStorage`/persistence, and Settings were not
+touched, per instruction.
+
+### WebView lifecycle
+
+```
+Job created (JobList "Create Job")
+  -> no webview yet (lazy)
+
+Job selected in JobList, OR Job's "Generate" clicked
+  -> BrowserPool.ensure(jobId, job.conversationUrl)
+       -> already has a ready webview?  return its handle, no-op
+       -> otherwise: mount a new <webview partition="persist:gpt-image-studio">
+            -> wait for "dom-ready"
+            -> job.conversationUrl set (restored from a previous session)?
+                 -> loadURL(conversationUrl) once
+               else: stays on the default CHATGPT_HOME_URL (fresh chat)
+            -> resolve BrowserHandle bound to this Job's webview
+
+Switching to a different Job
+  -> activeJobId prop changes -> CSS show/hide only
+  -> ensure() called again for the newly-selected Job (no-op if already ready)
+  -> the previously-active Job's webview is untouched, stays mounted, stays on its own page
+
+Job deleted
+  -> BrowserPool.destroy(jobId) -> that Job's <webview> unmounts, guest process torn down
+```
+
+### Memory management
+
+Each activated Job now costs one real Chromium renderer process for its
+webview (ChatGPT's full JS bundle, live connection, the works) - this
+is the direct, accepted trade-off of "true concurrency, no shared
+resource" that was discussed and chosen over the single-webview design.
+Measured live this session with 5 Jobs activated (one main window +
+five Job webviews): 8 `electron.exe` processes (main + GPU + one
+renderer per activated webview, roughly), totaling **~1.6 GB** resident
+memory for the whole app. That's roughly 250-300MB per active Job
+webview on top of the fixed baseline - this will scale close to
+linearly with how many distinct Jobs a user actually activates in a
+session, and is the number to keep in mind for the ROADMAP's existing
+"stress-test 5-10+ jobs" item. Webviews are never destroyed except on
+Job delete, so a long session with many created-and-abandoned Jobs will
+hold onto that memory until those Jobs are explicitly deleted - there is
+no idle-eviction/LRU mechanism, by design (not requested, would add
+real complexity around "is it safe to tear down a webview that might
+still be mid-generation").
+
+### Verification results (live, real Electron app, real ChatGPT account)
+
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`, `npx tsc && npx vite
+  build`: all clean.
+- **Webview count tracks Job activation exactly**: 0 webview CDP targets
+  right after boot (before any Job is touched - confirms lazy creation,
+  no eager creation of anything); grew to exactly 1/2/3/4 as each of 4
+  Jobs was created-and-selected in turn, confirmed via the CDP target
+  list, not application logs.
+- **Full 3-Job isolation test** (Portrait / Anime / Landscape, matching
+  the requested verification): generated in Job A (Portrait) - captured
+  a real `conversationUrl`. Switched to Job B (Anime) - Job A's webview
+  target stayed on its own URL, untouched, confirmed via the CDP target
+  list before and after. Generated in Job B - captured its own,
+  *different* `conversationUrl`. Switched back to Job A - **zero**
+  navigation-related log lines fired (`[JobSwitch]` only ever logged
+  "ensuring webview for job", never any loadURL/navigation), and the CDP
+  target list confirmed Job A's webview was still sitting on its
+  original URL the entire time, Job B's webview on its own different
+  URL - both simultaneously, both correct. A real screenshot of the
+  running app after all of this shows Job A's own conversation
+  ("Ultra realistic portrait, 8k, masterpiece" + the real generated
+  image) exactly as it was left, with Job B's generation having had
+  zero visible effect on it.
+- **Regression check - upload + prompt insertion + download, now
+  through a per-Job webview**: ran the full pipeline on Job C
+  (Landscape) with an uploaded image - reached `status: "done"` with a
+  populated `imagePath`. Independently verified (not trusting the
+  pipeline's own success logs, per this session's Part 1 lesson) by
+  reading the actual rendered message text directly from Job C's own
+  webview: `"Epic fantasy landscape, cinematic lighting"` - the real
+  prompt, correctly sent, on the correct Job's own conversation.
+- **Regression check - Prompt Library**: created two new prompts
+  ("Anime", "Landscape") through the real Create-Prompt modal during
+  this session's testing - confirms the modal/CRUD flow from Session 4
+  is unaffected by this change.
+- `git diff --stat electron/main.ts`: empty - the temporary
+  `--remote-debugging-port` switch used for all of this session's live
+  verification was fully reverted before this commit, confirmed via
+  diff.
+
+### Remaining known issues
+
+- Bug #2 (Job title auto-naming) and Bug #3 (Job isolation), as
+  reported at the start of this session, were never actually reproduced
+  under live testing in this session - by the time thorough live
+  verification was performed, both behaved correctly (title updates
+  confirmed via screenshot multiple times; isolation is now the subject
+  of this session's whole architecture change and is verified above).
+  If either is still observed as broken in practice, it needs a fresh,
+  specific repro - nothing in this session's testing reproduced them as
+  independent defects.
+- Download-step flakiness (Session 5) and large-payload `localStorage`
+  persistence-across-a-crash (Session 4) remain open, untouched this
+  session.
+- No idle-eviction for Job webviews (see "Memory management" above) -
+  an intentional omission, not a bug, but worth flagging if a session
+  ends up with many activated-but-abandoned Jobs.
+
+---
+
+## Session 7 (2026-08-03): Version 1.0 - the Workspace IS the tab
+
+Product direction change, approved and specified by the user: GPT Image
+Studio Pro stops being a "ChatGPT manager" (Job list, Queue, Project
+files, history) and becomes a minimal, fast Image Generation Studio.
+Implementation order followed the user's recommended 5 steps; see
+"Why Steps 1-4 landed together" below for why they're one milestone
+instead of four.
+
+### Why Steps 1-4 landed together
+
+The recommended steps were: (1) remove Job List, (2) move Prompt/
+Upload/Generate into the main workspace panel, (3) remove the Queue,
+(4) rename Job terminology to Workspace. In practice these are one
+change at the data-model level: a Tab can only "own one image/prompt/
+status directly" (the whole point of removing Job List) once Job's
+fields are folded directly into the Tab/Workspace type - there's no
+intermediate state where that compiles and runs correctly. Rather than
+force four commits through a broken intermediate state, all four
+landed as a single verified milestone; Step 5 (styling) is genuinely
+separable and is next.
+
+### Data model
+
+- New `src/types/Workspace.ts` - `Workspace { id, name, prompt, status,
+  imagePath?, createdAt, completedAt?, uploadedImagePath?,
+  selectedPromptId?, conversationUrl? }`. This is `Job`'s old field set,
+  directly on what used to be `ProjectTab` - there is no more nesting.
+  `name` is the *only* title anywhere (shown directly in the tab bar) -
+  `Job.title` and `ProjectTab.name` used to be two separate things;
+  now there's one.
+- New `src/services/WorkspaceService.ts` - flat-array equivalent of the
+  old `JobService.ts` (`getCurrentWorkspace`, `addWorkspace`,
+  `deleteWorkspace`, `updateWorkspace`, `setWorkspacePrompt`,
+  `setWorkspaceUploadedImage`). `setWorkspacePrompt` is what renames
+  the tab: sets `name` to the selected Prompt's title, de-duplicated
+  against sibling *Workspaces* (not sibling Jobs-within-a-tab, since
+  there's no such nesting anymore) with " (2)", " (3)", ...
+- **Deleted entirely**: `src/types/Job.ts`, `src/types/Project.ts`,
+  `src/services/JobService.ts`, `src/utils/ProjectStorage.ts` (all
+  Project/Tab/Job persistence logic - localStorage autosave, `.gisp`
+  native file open/save/saveAs, and their IPC handlers in
+  `electron/main.ts` + API surface in `electron/preload.ts`), both
+  `defaultJobs.ts` seed files, `src/utils/fileUrl.ts` (only used by the
+  now-removed Result-image section).
+
+### Removed from the UI
+
+- `JobList.tsx`/`.css` - deleted outright, not replaced. A Workspace
+  always has exactly the one image/prompt/status it owns directly -
+  there's nothing to list.
+- The Result/generated-image preview section that used to live in
+  `JobDetail` - the new `WorkspacePanel` shows only Image / Prompt /
+  Generate / Status, matching the approved layout exactly (no history,
+  no result browsing - the file is on disk, auto-named, nothing to
+  look at here).
+- Toolbar: `New Job`, `Generate` (bulk/queue), `Open`, `Save` buttons
+  all removed. Only the app title and a disabled `Settings` button
+  remain.
+- The "Stop" queue-cancel button - gone; there's no queue to cancel,
+  and it wasn't in the approved layout.
+
+### Renamed / restructured
+
+- `JobDetail.tsx` -> `src/components/Workspace/WorkspacePanel.tsx`.
+  Props simplified: no more `job: Job | null` + id-addressed handlers -
+  since there's only ever one Workspace to show/edit at a time now, it
+  takes `workspace: Workspace` directly (never null - a Workspace
+  always exists) and handlers like `onUploadImage(dataUrl)`/
+  `onSelectPrompt(promptId)` no longer need an id parameter at all.
+- `JobTabs.tsx` -> `src/components/Workspace/WorkspaceTabs.tsx` - same
+  switch/add/delete UI, now reading `Workspace[]`/`currentWorkspaceId`
+  directly instead of `Project.tabs`/`currentTabId`.
+- `QueueRunner.ts` -> `src/services/generate.ts` - the automation
+  pipeline itself (upload, prompt insertion via the paste-event fix,
+  send, wait-for-generation, download, verify, close viewer) is
+  byte-for-byte the same logic as before; only the "for each job in a
+  queue" loop and its cross-job status-cascade bookkeeping are gone.
+  `runGenerate()` now runs once, for exactly one `Workspace` passed in
+  directly.
+- `Browser.tsx` (`BrowserPool`) - identical design to Session 6's per-
+  Job webview registry, just re-keyed by Workspace id
+  (`activeWorkspaceId`, `ensure(workspaceId, ...)`, etc.) - the
+  lifecycle (lazy creation on first activation, pure show/hide on
+  switch, destroy on close) didn't need to change at all, since a
+  Workspace *is* what a Job used to be for this purpose.
+- `Workspace.tsx` - full rewrite around the flat `Workspace[]` state;
+  no more `projectRef`-mirrors-for-a-nested-structure, no more scoped-
+  one-job-view adapter for per-job Generate (not needed - there's only
+  ever one thing to generate: the current Workspace).
+
+### Automatic saving
+
+New in `electron/main.ts`: `buildAutoFilename(dir, baseName)` - builds
+`★_{PromptTitle}_{NNN}.png`, scanning the download folder and
+incrementing `NNN` until it finds a name that doesn't already exist.
+The `image:armDownload` IPC channel now carries `(id, baseName)`
+instead of just a `jobId` - `id` is still used to correlate the
+`will-download` event back to the right renderer-side promise,
+`baseName` is `generate.ts`'s `baseFileName(workspace.name)`, which
+strips the Workspace's own " (2)"/" (3)" tab-disambiguation suffix
+first, so two tabs both using the "Portrait" prompt still produce a
+single correctly-numbered sequence (`★_Portrait_001.png`,
+`★_Portrait_002.png`, ...) instead of the tab suffix leaking into
+filenames. Download folder and filename format are currently hardcoded
+(no Settings UI yet - see ROADMAP P1).
+
+### Persistence
+
+Removed entirely for Workspace state: no `useEffect` autosave, no
+`loadProject`/`buildDefaultProject` fallback-from-storage logic. The
+app always boots with exactly one fresh `Workspace` (`name: "New
+Tab"`). Prompt Library persistence (`PromptStore.ts`) is completely
+untouched and still works exactly as before - it was never part of the
+`ProjectStorage` deletion.
+
+### Verification (live, real Electron app, real ChatGPT account)
+
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`, `npx tsc && npx vite
+  build`: all clean.
+- **Layout**: a real screenshot of the running app matches the
+  approved spec almost exactly - top Workspace Tabs, left Prompt
+  Library only, center ChatGPT Browser, right panel with exactly
+  Image/Prompt/Generate/Status and no Result section.
+- **Tab renaming**: selecting "Portrait" renamed the tab from "New Tab"
+  to "Portrait" immediately, confirmed live. Opening a second tab and
+  selecting "Portrait" again produced "Portrait (2)", confirmed live -
+  both PASS.
+- **Independent WebViews**: webview CDP-target count tracked Workspace
+  activation exactly (1 at boot - the initial Workspace is active
+  immediately, unlike the old nullable `selectedJobId` - growing to 2
+  once a second tab became active). A screenshot after generating in
+  the first "Portrait" tab and switching to "Portrait (2)" shows the
+  second tab's own fresh, untouched ChatGPT conversation, completely
+  unaffected by the first tab's completed generation.
+- **Full generate + auto-download**: ran the complete pipeline
+  (upload -> prompt insert -> send -> wait -> download -> verify) on a
+  real Workspace; reached status "Saved" (the new status label,
+  matching the approved vocabulary); the file
+  `★_Portrait_001.png` was independently confirmed to exist on disk
+  (1,852,164 bytes) via a direct filesystem check, not just trusting
+  the pipeline's own logs.
+- **Persistence rules**: killed and relaunched the app after having had
+  two named/generated Workspace tabs open - confirmed it booted back to
+  exactly one fresh "New Tab" (Workspace state did NOT survive, as
+  required) while the Prompt Library (`Portrait`/`Anime`/`Landscape`/
+  etc.) was still fully present (Prompt Library DID survive, as
+  required). Both confirmed via the live DOM, not assumed.
+- `git diff --stat electron/main.ts`: confirmed clean of the temporary
+  `--remote-debugging-port` switch used for this session's live
+  verification (checked the diff text directly for the string, not
+  just the file's presence in the diff, since this file also has real,
+  intentional changes this session).
+
+### Remaining known issues / next steps
+
+- **Step 5 (styling) not done yet** - components were deliberately kept
+  on their old `job-*` CSS class names during this structural rewrite
+  to minimize risk; see ROADMAP "Next up - Step 5" for the concrete
+  list.
+- Settings (Download Folder, Filename format persistence) has no UI
+  yet - values are correct and functional but hardcoded. See ROADMAP
+  P1.
+- A stale `gpt-image-studio-project` `localStorage` key from before
+  this session still exists in this dev profile - confirmed inert (no
+  code reads it anymore), not cleaned up, harmless.
+- Everything else carried over from prior sessions (download-step
+  flakiness, no webview idle-eviction) is unaffected by this rewrite -
+  see ROADMAP for current status.

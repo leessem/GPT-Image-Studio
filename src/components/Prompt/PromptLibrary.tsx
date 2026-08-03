@@ -1,5 +1,9 @@
 // ============================================================================
 // File : src/components/Prompt/PromptLibrary.tsx
+//
+// Lightweight template manager: titles only, nothing else. Clicking a
+// title opens it in the edit modal (Prompt.tsx owns that state) - this
+// component never renders prompt content itself.
 // ============================================================================
 
 import { PromptItem } from "../../types/Prompt";
@@ -8,9 +12,9 @@ interface PromptLibraryProps {
 
     prompts: PromptItem[];
 
-    selectedId: string | null;
+    onSelect: (item: PromptItem) => void;
 
-    onSelect: (id: string) => void;
+    onNew: () => void;
 
 }
 
@@ -18,9 +22,9 @@ export default function PromptLibrary({
 
     prompts,
 
-    selectedId,
-
     onSelect,
+
+    onNew,
 
 }: PromptLibraryProps) {
 
@@ -42,12 +46,9 @@ export default function PromptLibrary({
 
                         key={item.id}
 
-                        className={
-                            "prompt-library-item" +
-                            (item.id === selectedId ? " selected" : "")
-                        }
+                        className="prompt-library-item"
 
-                        onClick={() => onSelect(item.id)}
+                        onClick={() => onSelect(item)}
 
                     >
 
@@ -56,6 +57,16 @@ export default function PromptLibrary({
                     </div>
 
                 ))}
+
+            </div>
+
+            <div className="prompt-library-footer">
+
+                <button onClick={onNew}>
+
+                    + New Prompt
+
+                </button>
 
             </div>
 

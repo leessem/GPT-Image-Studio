@@ -1,14 +1,21 @@
 // ============================================================================
-// File : src/components/Workspace/JobTabs.tsx
+// File : src/components/Workspace/WorkspaceTabs.tsx
+//
+// V1.0: the top tab bar IS the Workspace list - each tab is one
+// independent Workspace. There is no separate Job title anywhere; a
+// tab's own name is renamed automatically the moment a Prompt is
+// selected (see WorkspaceService.setWorkspacePrompt).
 // ============================================================================
 
-import "./JobTabs.css";
+import "./WorkspaceTabs.css";
 
-import { Project } from "../../types/Project";
+import { Workspace } from "../../types/Workspace";
 
-interface JobTabsProps {
+interface WorkspaceTabsProps {
 
-    project: Project;
+    workspaces: Workspace[];
+
+    currentWorkspaceId: string;
 
     onSwitch: (id: string) => void;
 
@@ -18,9 +25,11 @@ interface JobTabsProps {
 
 }
 
-export default function JobTabs({
+export default function WorkspaceTabs({
 
-    project,
+    workspaces,
+
+    currentWorkspaceId,
 
     onSwitch,
 
@@ -28,27 +37,27 @@ export default function JobTabs({
 
     onDelete,
 
-}: JobTabsProps) {
+}: WorkspaceTabsProps) {
 
     return (
 
         <div className="job-tabs">
 
-            {project.tabs.map(tab => (
+            {workspaces.map(workspace => (
 
                 <div
 
-                    key={tab.id}
+                    key={workspace.id}
 
-                    className={`job ${tab.id === project.currentTabId ? "active" : ""}`}
+                    className={`job ${workspace.id === currentWorkspaceId ? "active" : ""}`}
 
-                    onClick={() => onSwitch(tab.id)}
+                    onClick={() => onSwitch(workspace.id)}
 
                 >
 
-                    <span>{tab.name}</span>
+                    <span>{workspace.name}</span>
 
-                    {project.tabs.length > 1 && (
+                    {workspaces.length > 1 && (
 
                         <button
 
@@ -58,7 +67,7 @@ export default function JobTabs({
 
                                 e.stopPropagation();
 
-                                onDelete(tab.id);
+                                onDelete(workspace.id);
 
                             }}
 

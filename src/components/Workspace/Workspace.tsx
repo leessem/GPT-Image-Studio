@@ -1,378 +1,221 @@
 // ============================================================================
 // File : src/components/Workspace/Workspace.tsx
 //
-// Job-first architecture: Job is the primary object. Each Job owns its
-// own uploaded image, selected prompt, status and result - JobList/
-// JobDetail are the primary UI, Prompt is now template management only.
+// V1.0: the Workspace IS the tab - there is no separate Job/Project
+// concept, no Job List, no Queue. State is runtime-only and never
+// persisted; closing the app discards every open Workspace. Only the
+// Prompt Library survives a restart.
 // ============================================================================
 
 import { useRef, useState, useEffect } from "react";
-import type { SetStateAction } from "react";
 
-import Browser, { BrowserHandle, CHATGPT_HOME_URL } from "../Browser/Browser";
+import BrowserPool, { BrowserPoolHandle } from "../Browser/Browser";
 import Prompt from "../Prompt/Prompt";
 import Toolbar from "../Toolbar/Toolbar";
-import JobList from "../Job/JobList";
-import JobDetail from "../Job/JobDetail";
-import JobTabs from "./JobTabs";
+import WorkspaceTabs from "./WorkspaceTabs";
+import WorkspacePanel from "./WorkspacePanel";
 
-import { Project, createProject } from "../../types/Project";
+import { type Workspace, createWorkspace } from "../../types/Workspace";
 import { PromptDraft, PromptItem } from "../../types/Prompt";
 
-import { defaultJobs } from "../data/defaultJobs";
-
-import { runQueue } from "../Queue/QueueRunner";
+import { runGenerate } from "../../services/generate";
 
 import PromptStore from "../../store/Promptstore";
 
 import {
-    loadProject,
-    saveProject,
-    isValidProject,
-} from "../../utils/ProjectStorage";
-
-import {
-    createJob,
-    deleteJob,
-    setJobPrompt,
-    setJobUploadedImage,
-    addTab,
-    deleteTab,
-    switchTab,
-    getCurrentTab,
-    getCurrentJobs,
-    updateCurrentJobs,
-} from "../../services/JobService";
+    getCurrentWorkspace,
+    addWorkspace,
+    deleteWorkspace,
+    updateWorkspace,
+    setWorkspacePrompt,
+    setWorkspaceUploadedImage,
+} from "../../services/WorkspaceService";
 
 import "./Workspace.css";
-
-// ========================================================================
-// 기본 프로젝트 생성
-// ========================================================================
-
-function buildDefaultProject(): Project {
-
-    const project = createProject();
-
-    project.tabs[0] = {
-
-        ...project.tabs[0],
-
-        jobs: defaultJobs,
-
-    };
-
-    return project;
-
-}
 
 export default function Workspace() {
 
     // ========================================================================
-    // Browser (one shared webview/partition/login for every Job - a Job's
-    // independence comes from its own conversationUrl, not a separate
-    // browser profile)
+    // Browser (one shared partition/login, one persistent webview per
+    // Workspace - a Workspace's independence comes from owning its own
+    // webview, which stays parked on its own conversation; switching
+    // Workspaces never navigates)
     // ========================================================================
 
-    const browserRef = useRef<BrowserHandle>(null);
+    const browserPoolRef = useRef<BrowserPoolHandle>(null);
 
     // ========================================================================
-    // Queue
+    // Generation (current Workspace only - there is no Queue)
     // ========================================================================
-
-    const stopRef = useRef(false);
 
     const [running, setRunning] = useState(false);
 
     // ========================================================================
-    // Project
+    // Workspaces - runtime only, never persisted. Always starts with
+    // exactly one Workspace, and always has at least one open.
     // ========================================================================
 
-    const [project, setProject] = useState<Project>(() =>
-        loadProject(buildDefaultProject())
+    const [workspaces, setWorkspaces] = useState<Workspace[]>(
+        () => [createWorkspace()]
     );
 
-    const jobs = getCurrentJobs(project);
+    const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string>(
+        () => workspaces[0].id
+    );
 
-    // Mirrors `project` for the job-switch navigation effect below, so that
-    // effect can depend on selectedJobId alone (not on project, which
-    // changes constantly during generation) while still reading fresh data.
-    const projectRef = useRef(project);
+    const currentWorkspace = getCurrentWorkspace(workspaces, currentWorkspaceId);
+
+    // Mirrors `workspaces` for the switch effect below, so it can depend on
+    // currentWorkspaceId alone (not on workspaces, which changes constantly
+    // during generation) while still reading fresh data.
+    const workspacesRef = useRef(workspaces);
 
     useEffect(() => {
 
-        projectRef.current = project;
+        workspacesRef.current = workspaces;
 
-    }, [project]);
+    }, [workspaces]);
 
-    // ========================================================================
-    // Job selection (primary object under the Job-first architecture)
-    // ========================================================================
-
-    const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-
-    const selectedJob = selectedJobId
-        ? jobs.find(job => job.id === selectedJobId) ?? null
-        : null;
-
-    // Switching to a Job restores its own ChatGPT conversation (or starts a
-    // fresh one if it doesn't have one yet) in the one shared webview. Keyed
-    // only on selectedJobId - reads the latest job data via projectRef so it
-    // never re-navigates just because some other project state changed.
+    // Switching Workspaces never navigates anything - each Workspace owns
+    // its own persistent webview, which already sits on its own
+    // conversation. This only makes sure that webview *exists* (creating
+    // it - and restoring its conversationUrl, if any - the first time this
+    // Workspace is activated); visibility is driven purely by passing
+    // currentWorkspaceId as BrowserPool's activeWorkspaceId prop.
     useEffect(() => {
 
-        if (!browserRef.current || !selectedJobId)
+        if (!browserPoolRef.current)
             return;
 
-        const job = getCurrentJobs(projectRef.current).find(
-            j => j.id === selectedJobId
+        const workspace = workspacesRef.current.find(
+            w => w.id === currentWorkspaceId
         );
 
-        browserRef.current.loadURL(job?.conversationUrl ?? CHATGPT_HOME_URL);
+        browserPoolRef.current.ensure(currentWorkspaceId, workspace?.conversationUrl);
 
-    }, [selectedJobId]);
+    }, [currentWorkspaceId]);
 
     // ========================================================================
-    // Prompt Library selection
+    // Prompt Library
     //
-    // PromptStore is the single source of truth for prompt data - Workspace
-    // only keeps track of which prompt id is selected, never a copy of its
-    // title/prompt/negativePrompt content.
+    // PromptStore is the single source of truth for prompt content - this
+    // is just a rendering cache kept in lockstep with it, re-synced
+    // immediately after every mutation since the plain singleton store
+    // can't trigger a React re-render on its own.
     // ========================================================================
 
-    const [selectedPromptId, setSelectedPromptId] = useState<string | null>(
-        null
+    const [prompts, setPrompts] = useState<PromptItem[]>(
+        () => PromptStore.getAll()
     );
 
-    // PromptStore is the source of truth for prompt content - this is just
-    // a rendering cache kept in lockstep with it, re-synced immediately
-    // after every mutation (create/update/remove) since the plain
-    // singleton store can't trigger a React re-render on its own.
-    const [prompts, setPrompts] = useState<PromptItem[]>(() =>
-        PromptStore.getAll()
-    );
-
-    const selectedPrompt = selectedPromptId
-        ? prompts.find(item => item.id === selectedPromptId) ?? null
-        : null;
-
     // ========================================================================
-    // Auto Save
+    // Generate
     // ========================================================================
 
-    useEffect(() => {
+    const onGenerate = async () => {
 
-        saveProject(project);
+        console.log("[Generate] Generate clicked for workspace", currentWorkspace.id);
 
-    }, [project]);
-
-    // ========================================================================
-    // Queue Start (tab-wide bulk run - unchanged automation, unchanged path)
-    // ========================================================================
-
-    const startQueue = async () => {
-
-        console.log("[Queue] Start Queue clicked");
-
-        if (!browserRef.current) {
-            console.error("[Queue] Aborted: browser ref not ready");
+        if (!browserPoolRef.current) {
+            console.error("[Generate] Aborted: browser pool not ready");
             return;
         }
 
         if (running) {
-            console.warn("[Queue] Aborted: queue already running");
+            console.warn("[Generate] Aborted: already generating");
             return;
         }
 
-        stopRef.current = false;
+        const workspace = currentWorkspace;
 
-        await runQueue({
+        const browser = await browserPoolRef.current.ensure(
+            workspace.id,
+            workspace.conversationUrl
+        );
 
-            browser: browserRef.current,
+        await runGenerate({
 
-            project,
+            browser,
 
-            stopRef,
+            workspace,
 
-            setProject,
+            onUpdate: updater =>
+                setWorkspaces(prev => updateWorkspace(prev, workspace.id, updater)),
 
-            onStart: () => {
+            onStart: () => setRunning(true),
 
-                setRunning(true);
+            onFinish: () => setRunning(false),
 
-            },
-
-            onFinish: () => {
-
-                setRunning(false);
-
-            },
-
-            onError: (err) => {
-
-                console.error(err);
-
-            },
+            onError: err => console.error(err),
 
         });
 
     };
 
     // ========================================================================
-    // Generate a single Job (Job-first "Generate" step)
-    //
-    // Runs the exact same, unmodified runQueue()/QueueRunner through a
-    // scoped one-job "view" of the project, then merges the result back
-    // onto the real job by id. QueueRunner/ChatGPT.ts are untouched.
+    // Workspace events
     // ========================================================================
 
-    const onGenerateJob = async (jobId: string) => {
+    const onAddWorkspace = () => {
 
-        console.log("[Queue] Generate clicked for job", jobId);
+        const { workspaces: next, created } = addWorkspace(workspaces);
 
-        if (!browserRef.current) {
-            console.error("[Queue] Aborted: browser ref not ready");
-            return;
-        }
+        setWorkspaces(next);
 
-        if (running) {
-            console.warn("[Queue] Aborted: queue already running");
-            return;
-        }
-
-        const currentTab = getCurrentTab(project);
-
-        const job = currentTab.jobs.find(j => j.id === jobId);
-
-        if (!job)
-            return;
-
-        let scopedProject: Project = {
-
-            ...project,
-
-            tabs: project.tabs.map(tab =>
-                tab.id === currentTab.id
-                    ? { ...tab, jobs: [job] }
-                    : tab
-            ),
-
-        };
-
-        stopRef.current = false;
-
-        await runQueue({
-
-            browser: browserRef.current,
-
-            project: scopedProject,
-
-            stopRef,
-
-            setProject: (update: SetStateAction<Project>) => {
-
-                scopedProject =
-                    typeof update === "function"
-                        ? update(scopedProject)
-                        : update;
-
-                const scopedJob = getCurrentJobs(scopedProject)[0];
-
-                if (!scopedJob)
-                    return;
-
-                setProject(prevReal =>
-                    updateCurrentJobs(prevReal, tabJobs =>
-                        tabJobs.map(j =>
-                            j.id === scopedJob.id ? scopedJob : j
-                        )
-                    )
-                );
-
-            },
-
-            onStart: () => {
-
-                setRunning(true);
-
-            },
-
-            onFinish: () => {
-
-                setRunning(false);
-
-            },
-
-            onError: (err) => {
-
-                console.error(err);
-
-            },
-
-        });
+        setCurrentWorkspaceId(created.id);
 
     };
 
-    // ========================================================================
-    // Queue Stop
-    // ========================================================================
+    const onSwitchWorkspace = (id: string) => {
 
-    const stopQueue = () => {
-
-        stopRef.current = true;
+        setCurrentWorkspaceId(id);
 
     };
 
-    // ========================================================================
-    // Job Event (Job-first: create / select / delete / upload / prompt)
-    // ========================================================================
+    const onDeleteWorkspace = (id: string) => {
 
-    const onCreateJob = () => {
+        const remaining = deleteWorkspace(workspacesRef.current, id);
 
-        const job = createJob();
+        setWorkspaces(remaining);
 
-        setProject(prev =>
-            updateCurrentJobs(prev, tabJobs => [...tabJobs, job])
+        setCurrentWorkspaceId(prev => (prev === id ? remaining[0].id : prev));
+
+        browserPoolRef.current?.destroy(id);
+
+    };
+
+    const onUploadImage = (dataUrl: string) => {
+
+        setWorkspaces(prev =>
+            setWorkspaceUploadedImage(prev, currentWorkspace.id, dataUrl)
         );
 
-        setSelectedJobId(job.id);
+    };
+
+    const onRemoveImage = () => {
+
+        setWorkspaces(prev =>
+            setWorkspaceUploadedImage(prev, currentWorkspace.id, undefined)
+        );
 
     };
 
-    const onSelectJob = (id: string) => {
-
-        setSelectedJobId(id);
-
-    };
-
-    const onDeleteJob = (id: string) => {
-
-        setProject(prev => deleteJob(prev, id));
-
-        setSelectedJobId(prev => (prev === id ? null : prev));
-
-    };
-
-    const onUploadJobImage = (jobId: string, dataUrl: string) => {
-
-        setProject(prev => setJobUploadedImage(prev, jobId, dataUrl));
-
-    };
-
-    const onRemoveJobImage = (jobId: string) => {
-
-        setProject(prev => setJobUploadedImage(prev, jobId, undefined));
-
-    };
-
-    const onSelectJobPrompt = (jobId: string, promptId: string) => {
+    const onSelectPrompt = (promptId: string) => {
 
         const item = prompts.find(p => p.id === promptId);
 
         if (!item)
             return;
 
-        setProject(prev => setJobPrompt(prev, jobId, promptId, item.prompt));
+        setWorkspaces(prev =>
+            setWorkspacePrompt(
+                prev,
+                currentWorkspace.id,
+                promptId,
+                item.prompt,
+                item.title
+            )
+        );
 
     };
 
@@ -380,25 +223,11 @@ export default function Workspace() {
     // Prompt Library (template management only)
     // ========================================================================
 
-    const onSelectPrompt = (id: string) => {
-
-        setSelectedPromptId(id);
-
-    };
-
-    const onNewPrompt = () => {
-
-        setSelectedPromptId(null);
-
-    };
-
     const onCreatePrompt = (draft: PromptDraft) => {
 
-        const created = PromptStore.create(draft);
+        PromptStore.create(draft);
 
         setPrompts(PromptStore.getAll());
-
-        setSelectedPromptId(created.id);
 
     };
 
@@ -416,62 +245,6 @@ export default function Workspace() {
 
         setPrompts(PromptStore.getAll());
 
-        setSelectedPromptId(prev => (prev === id ? null : prev));
-
-    };
-
-    // ========================================================================
-    // Tab Event
-    // ========================================================================
-
-    const onSwitchTab = (id: string) => {
-
-        setProject(prev => switchTab(prev, id));
-
-    };
-
-    const onAddTab = () => {
-
-        setProject(prev => addTab(prev));
-
-    };
-
-    const onDeleteTab = (id: string) => {
-
-        setProject(prev => deleteTab(prev, id));
-
-    };
-
-    // ========================================================================
-    // Open / Save Project (native file)
-    // ========================================================================
-
-    const onOpenProject = async () => {
-
-        const result = await window.ipcRenderer.project.open();
-
-        if (!result)
-            return;
-
-        if (!isValidProject(result.data)) {
-
-            console.error(
-                "Invalid project file:",
-                result.path
-            );
-
-            return;
-
-        }
-
-        setProject(result.data);
-
-    };
-
-    const onSaveProject = async () => {
-
-        await window.ipcRenderer.project.saveAs(project);
-
     };
 
     return (
@@ -482,72 +255,37 @@ export default function Workspace() {
                 Toolbar
             ================================================================ */}
 
-            <Toolbar
-
-                onNewJob={onCreateJob}
-
-                onGenerate={startQueue}
-
-                onOpen={onOpenProject}
-
-                onSave={onSaveProject}
-
-            />
+            <Toolbar />
 
             {/* ===============================================================
-                Job Tabs
+                Workspace Tabs
             ================================================================ */}
 
-            <JobTabs
+            <WorkspaceTabs
 
-                project={project}
+                workspaces={workspaces}
 
-                onSwitch={onSwitchTab}
+                currentWorkspaceId={currentWorkspaceId}
 
-                onAdd={onAddTab}
+                onSwitch={onSwitchWorkspace}
 
-                onDelete={onDeleteTab}
+                onAdd={onAddWorkspace}
+
+                onDelete={onDeleteWorkspace}
 
             />
 
             {/* ===============================================================
-                Main Layout
+                Main Layout: Prompt Library | ChatGPT Browser | Workspace Panel
             ================================================================ */}
 
             <div className="workspace-body">
 
-                {/* -----------------------------------------------------------
-                    Sidebar: Job List (primary nav) + Prompt Library
-                    (template collection only)
-                ------------------------------------------------------------ */}
-
                 <div className="workspace-sidebar">
-
-                    <JobList
-
-                        jobs={jobs}
-
-                        selectedJobId={selectedJobId}
-
-                        onSelect={onSelectJob}
-
-                        onCreate={onCreateJob}
-
-                        onDelete={onDeleteJob}
-
-                    />
 
                     <Prompt
 
                         prompts={prompts}
-
-                        selectedPromptId={selectedPromptId}
-
-                        selectedPrompt={selectedPrompt}
-
-                        onSelectPrompt={onSelectPrompt}
-
-                        onNewPrompt={onNewPrompt}
 
                         onCreatePrompt={onCreatePrompt}
 
@@ -559,60 +297,33 @@ export default function Workspace() {
 
                 </div>
 
-                {/* -----------------------------------------------------------
-                    Browser
-                ------------------------------------------------------------ */}
+                <BrowserPool
 
-                <Browser
+                    ref={browserPoolRef}
 
-                    ref={browserRef}
+                    activeWorkspaceId={currentWorkspaceId}
 
                 />
 
-                {/* -----------------------------------------------------------
-                    Job Detail: upload image, select prompt, generate,
-                    status, result - all scoped to the selected Job
-                ------------------------------------------------------------ */}
+                <WorkspacePanel
 
-                <JobDetail
-
-                    job={selectedJob}
+                    workspace={currentWorkspace}
 
                     prompts={prompts}
 
                     running={running}
 
-                    onUploadImage={onUploadJobImage}
+                    onUploadImage={onUploadImage}
 
-                    onRemoveImage={onRemoveJobImage}
+                    onRemoveImage={onRemoveImage}
 
-                    onSelectPrompt={onSelectJobPrompt}
+                    onSelectPrompt={onSelectPrompt}
 
-                    onGenerate={onGenerateJob}
+                    onGenerate={onGenerate}
 
                 />
 
             </div>
-
-            {/* ===============================================================
-                Stop Queue Button
-            ================================================================ */}
-
-            {running && (
-
-                <button
-
-                    className="queue-stop-button"
-
-                    onClick={stopQueue}
-
-                >
-
-                    Stop
-
-                </button>
-
-            )}
 
         </div>
 

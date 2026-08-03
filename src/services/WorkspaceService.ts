@@ -1,0 +1,142 @@
+// ============================================================================
+// File : src/services/WorkspaceService.ts
+//
+// V1.0: pure functions over a flat Workspace[] list - there is no Project/
+// Tab/Job nesting anymore, a Workspace is the only unit.
+// ============================================================================
+
+import { Workspace, createWorkspace } from "../types/Workspace";
+
+export function getCurrentWorkspace(
+
+    workspaces: Workspace[],
+
+    currentWorkspaceId: string
+
+): Workspace {
+
+    return (
+        workspaces.find(w => w.id === currentWorkspaceId) ?? workspaces[0]
+    );
+
+}
+
+export function addWorkspace(
+
+    workspaces: Workspace[]
+
+): { workspaces: Workspace[]; created: Workspace } {
+
+    const created = createWorkspace();
+
+    return {
+
+        workspaces: [...workspaces, created],
+
+        created,
+
+    };
+
+}
+
+/**
+ * Never removes the last remaining Workspace - there must always be at
+ * least one open.
+ */
+export function deleteWorkspace(
+
+    workspaces: Workspace[],
+
+    id: string
+
+): Workspace[] {
+
+    if (workspaces.length <= 1)
+        return workspaces;
+
+    return workspaces.filter(w => w.id !== id);
+
+}
+
+export function updateWorkspace(
+
+    workspaces: Workspace[],
+
+    id: string,
+
+    updater: (workspace: Workspace) => Workspace
+
+): Workspace[] {
+
+    return workspaces.map(w => (w.id === id ? updater(w) : w));
+
+}
+
+/**
+ * Assigns a Workspace the prompt text copied from a Prompt Library
+ * template, and immediately renames the Workspace (its tab title) to that
+ * template's title - there is no separate Workspace title. If sibling
+ * Workspace tabs already use this same promptId, appends " (2)", " (3)",
+ * ... so titles stay unique across all open tabs.
+ */
+export function setWorkspacePrompt(
+
+    workspaces: Workspace[],
+
+    id: string,
+
+    promptId: string,
+
+    promptText: string,
+
+    promptTitle: string
+
+): Workspace[] {
+
+    const siblingCount = workspaces.filter(
+        w => w.id !== id && w.selectedPromptId === promptId
+    ).length;
+
+    const name = siblingCount === 0
+        ? promptTitle
+        : `${promptTitle} (${siblingCount + 1})`;
+
+    return workspaces.map(w =>
+        w.id === id
+            ? {
+
+                  ...w,
+
+                  name,
+
+                  prompt: promptText,
+
+                  selectedPromptId: promptId,
+
+              }
+            : w
+    );
+
+}
+
+export function setWorkspaceUploadedImage(
+
+    workspaces: Workspace[],
+
+    id: string,
+
+    uploadedImagePath: string | undefined
+
+): Workspace[] {
+
+    return updateWorkspace(
+        workspaces,
+        id,
+        w => ({ ...w, uploadedImagePath })
+    );
+
+}
+
+// ============================================================================
+// End of File
+// ============================================================================

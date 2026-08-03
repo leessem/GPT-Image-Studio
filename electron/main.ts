@@ -2,7 +2,7 @@
 // ===== COMPLETE FILE =====
 
 import { app, BrowserWindow, session } from "electron";
-import { ipcMain, dialog } from "electron";
+import { ipcMain } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -43,7 +43,38 @@ const generatedImagesDir = path.join(
   "GPT Image Studio"
 );
 
-let pendingDownloadJobId: string | null = null;
+interface PendingDownload {
+  id: string;
+  baseName: string;
+}
+
+let pendingDownload: PendingDownload | null = null;
+
+/**
+ * V1.0 automatic saving: "★_{PromptTitle}_{NNN}.png", numbered
+ * sequentially against whatever already exists on disk for that same
+ * base name - never overwrites, never asks the user to rename anything.
+ */
+function buildAutoFilename(dir: string, baseName: string): string {
+
+  const safeName =
+    baseName.replace(/[\\/:*?"<>|]/g, "_").trim() || "Untitled";
+
+  let n = 1;
+
+  let candidate = `★_${safeName}_${String(n).padStart(3, "0")}.png`;
+
+  while (fs.existsSync(path.join(dir, candidate))) {
+
+    n++;
+
+    candidate = `★_${safeName}_${String(n).padStart(3, "0")}.png`;
+
+  }
+
+  return candidate;
+
+}
 
 app.on("second-instance", () => {
   if (win) {
@@ -105,13 +136,14 @@ app.whenReady().then(() => {
   const handleWillDownload: Parameters<
     Electron.Session["on"]
   >[1] = (_event, item) => {
-    const jobId = pendingDownloadJobId;
+    const pending = pendingDownload;
 
-    pendingDownloadJobId = null;
+    pendingDownload = null;
 
-    const ext = path.extname(item.getFilename()) || ".png";
-
-    const fileName = `${jobId ?? "image"}-${Date.now()}${ext}`;
+    const fileName = buildAutoFilename(
+      generatedImagesDir,
+      pending?.baseName ?? "Untitled"
+    );
 
     const filePath = path.join(generatedImagesDir, fileName);
 
@@ -119,7 +151,7 @@ app.whenReady().then(() => {
 
     item.once("done", (_, state) => {
       win?.webContents.send("image:downloaded", {
-        jobId,
+        id: pending?.id ?? null,
         filePath: state === "completed" ? filePath : null
       });
     });
@@ -141,11 +173,14 @@ app.whenReady().then(() => {
   // Generated Image Download
   // ===============================
 
-  ipcMain.on("image:armDownload", (event, jobId: string) => {
-    pendingDownloadJobId = jobId;
+  ipcMain.on(
+    "image:armDownload",
+    (event, id: string, baseName: string) => {
+      pendingDownload = { id, baseName };
 
-    event.returnValue = true;
-  });
+      event.returnValue = true;
+    }
+  );
 
   // Verifies the downloaded file actually exists on disk (a non-zero
   // size, not just the will-download "completed" event). Polls for a
@@ -173,82 +208,6 @@ app.whenReady().then(() => {
       }
 
       return { exists: false, size: 0 };
-    }
-  );
-
-  // ===============================
-  // Project Open
-  // ===============================
-
-  ipcMain.handle("project:open", async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ["openFile"],
-      filters: [
-        {
-          name: "GPT Image Studio Project",
-          extensions: ["gisp"]
-        }
-      ]
-    });
-
-    if (result.canceled) {
-      return null;
-    }
-
-    const filePath = result.filePaths[0];
-
-    const text = fs.readFileSync(filePath, "utf8");
-
-    return {
-      path: filePath,
-      data: JSON.parse(text)
-    };
-  });
-
-  // ===============================
-  // Save As
-  // ===============================
-
-  ipcMain.handle(
-    "project:saveAs",
-    async (_, project) => {
-      const result = await dialog.showSaveDialog({
-        filters: [
-          {
-            name: "GPT Image Studio Project",
-            extensions: ["gisp"]
-          }
-        ]
-      });
-
-      if (result.canceled || !result.filePath) {
-        return null;
-      }
-
-      fs.writeFileSync(
-        result.filePath,
-        JSON.stringify(project, null, 2),
-        "utf8"
-      );
-
-      return result.filePath;
-    }
-  );
-
-  // ===============================
-  // Save
-  // ===============================
-
-  ipcMain.handle(
-    "project:save",
-    async (_, filePath, project) => {
-      fs.writeFileSync(
-        filePath,
-        JSON.stringify(project, null, 2),
-        "utf8"
-      );
-
-      return true;
     }
   );
 

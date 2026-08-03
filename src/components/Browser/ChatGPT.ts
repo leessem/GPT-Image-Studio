@@ -17,49 +17,35 @@ function buildInsertPromptTextSnippet(prompt: string) {
 
   editor.focus();
 
-  const selection = window.getSelection();
+  // Manually mutating the DOM (innerHTML + a synthetic beforeinput/input
+  // InputEvent) was tried first, but confirmed live to be a false
+  // success: it makes the composer visibly show the text and even makes
+  // ChatGPT's own send button appear/enable, but ChatGPT's rich-text
+  // editor (ProseMirror) never registers the change in its own internal
+  // document model - a synthetic InputEvent carries no real
+  // getTargetRanges() data for it to read. The message that actually
+  // gets submitted on Send is read from that internal model, not the
+  // DOM, so it went out empty every time (confirmed by inspecting the
+  // real sent message, not just the composer's DOM). A simulated paste
+  // event runs through ProseMirror's real paste-handling pipeline
+  // instead, which does update its internal model correctly - confirmed
+  // live: the resulting sent message contains the real text.
+  const dataTransfer = new DataTransfer();
 
-  if (!selection) {
-    console.error("[ChatGPT] window.getSelection() returned null");
-    return {
-      success: false,
-      step: "selection-not-found",
-      reason: "selection not found"
-    };
-  }
+  dataTransfer.setData("text/plain", text);
 
-  selection.removeAllRanges();
-
-  const range = document.createRange();
-
-  range.selectNodeContents(editor);
-
-  range.collapse(true);
-
-  selection.addRange(range);
-
-  editor.innerHTML = "";
-
-  const p = document.createElement("p");
-
-  p.textContent = text;
-
-  editor.appendChild(p);
-
-  editor.dispatchEvent(new InputEvent("beforeinput", {
+  const pasteEvent = new ClipboardEvent("paste", {
     bubbles: true,
     cancelable: true,
-    inputType: "insertText",
-    data: text
-  }));
+    clipboardData: dataTransfer
+  });
 
-  editor.dispatchEvent(new InputEvent("input", {
-    bubbles: true,
-    inputType: "insertText",
-    data: text
-  }));
+  editor.dispatchEvent(pasteEvent);
 
-  console.log("[ChatGPT] prompt text inserted into editor");
+  console.log(
+    "[ChatGPT] prompt text inserted into editor via paste event, editor.innerText now:",
+    editor.innerText
+  );
 `;
 }
 
@@ -700,18 +686,31 @@ ${buildDomSnapshotSnippet()}
       const dataUrl = ${JSON.stringify(dataUrl)};
       const fileName = ${JSON.stringify(fileName)};
 
-      console.log("[ChatGPT] [Step 3/10] Locating upload target (composer form)");
+      console.log("[ChatGPT] [Step 3/10] Locating upload control (file input)");
 
       const editor = document.querySelector("#prompt-textarea");
 
-      const dropTarget = editor ? (editor.closest("form") || editor) : null;
+      const composerForm = editor ? (editor.closest("form") || editor.parentElement) : null;
 
-      if (!dropTarget) {
+      // ChatGPT's composer already renders real <input type="file"> controls
+      // (confirmed live via domSnapshot: #upload-photos, accept="image/*")
+      // for its own "add photos & files" button - use the same control
+      // instead of simulating a drag/drop onto the form. Live-verified: the
+      // drag/drop simulation was non-deterministic (one live run silently
+      // never attached the file, another triggered an unrelated navigation)
+      // whereas setting a real file input's .files is the standard,
+      // reliable way to script a file input.
+      const fileInput =
+        document.querySelector("#upload-photos") ||
+        (composerForm ? composerForm.querySelector('input[type="file"]') : null) ||
+        document.querySelector('input[type="file"]');
+
+      if (!fileInput) {
 
         const snapshot = domSnapshot();
 
-        console.error("[ChatGPT] [Step 3/10] FAILED - upload target not found", {
-          selector: "#prompt-textarea -> closest('form')",
+        console.error("[ChatGPT] [Step 3/10] FAILED - upload control not found", {
+          selector: "#upload-photos, input[type=file]",
           domSnapshot: snapshot
         });
 
@@ -719,18 +718,17 @@ ${buildDomSnapshotSnippet()}
           success: false,
           step: 3,
           stepName: "upload-control-found",
-          selector: "#prompt-textarea -> closest('form')",
+          selector: "#upload-photos, input[type=file]",
           domSnapshot: snapshot,
-          reason: "composer/drop target not found in DOM"
+          reason: "file input not found in DOM"
         };
 
       }
 
-      console.log("[ChatGPT] [Step 3/10] OK - drop target found", {
-        selector: "#prompt-textarea -> closest('form')",
-        tag: dropTarget.tagName,
-        id: dropTarget.id,
-        className: dropTarget.className
+      console.log("[ChatGPT] [Step 3/10] OK - upload control found", {
+        selector: fileInput.id ? ("#" + fileInput.id) : "input[type=file]",
+        id: fileInput.id,
+        accept: fileInput.accept
       });
 
       console.log("[ChatGPT] [Step 4/10] Building File + DataTransfer from uploaded image");
@@ -739,28 +737,43 @@ ${buildDomSnapshotSnippet()}
 
       try {
 
-        const response = await fetch(dataUrl);
-        const blob = await response.blob();
-        file = new File([blob], fileName, { type: blob.type || "image/png" });
+        // fetch(dataUrl) was tried first, but ChatGPT's page CSP blocks it
+        // (confirmed live: "TypeError: Failed to fetch") - decode the
+        // base64 payload directly instead, which never touches the
+        // network and so is unaffected by connect-src.
+        const commaIndex = dataUrl.indexOf(",");
+        const header = dataUrl.slice(0, commaIndex);
+        const base64 = dataUrl.slice(commaIndex + 1);
+        const mimeMatch = header.match(/data:(.*?);base64/);
+        const mimeType = mimeMatch ? mimeMatch[1] : "image/png";
+
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+
+        file = new File([bytes], fileName, { type: mimeType });
 
       }
-      catch (fetchErr) {
+      catch (decodeErr) {
 
         const snapshot = domSnapshot();
 
-        console.error("[ChatGPT] [Step 4/10] FAILED - could not build File from data URL", {
-          selector: "fetch(dataUrl)",
+        console.error("[ChatGPT] [Step 4/10] FAILED - could not decode data URL into a File", {
+          selector: "atob(dataUrl)",
           domSnapshot: snapshot,
-          reason: String(fetchErr)
+          reason: String(decodeErr)
         });
 
         return {
           success: false,
           step: 4,
           stepName: "image-injected",
-          selector: "fetch(dataUrl)",
+          selector: "atob(dataUrl)",
           domSnapshot: snapshot,
-          reason: "fetch(dataUrl) threw: " + String(fetchErr)
+          reason: "atob(dataUrl) decode failed: " + String(decodeErr)
         };
 
       }
@@ -768,20 +781,12 @@ ${buildDomSnapshotSnippet()}
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
 
-      const dispatchDragEvent = (type, target) => {
-        const event = new DragEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          dataTransfer
-        });
-        target.dispatchEvent(event);
-      };
+      fileInput.files = dataTransfer.files;
 
-      dispatchDragEvent("dragenter", dropTarget);
-      dispatchDragEvent("dragover", dropTarget);
-      dispatchDragEvent("drop", dropTarget);
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+      fileInput.dispatchEvent(new Event("input", { bubbles: true }));
 
-      console.log("[ChatGPT] [Step 4/10] OK - drag/drop sequence dispatched", {
+      console.log("[ChatGPT] [Step 4/10] OK - file assigned to input and change dispatched", {
         fileName: file.name,
         fileSize: file.size,
         fileType: file.type
@@ -830,21 +835,30 @@ ${buildDomSnapshotSnippet()}
       return editor ? (editor.closest("form") || editor.parentElement) : document;
     };
 
-    const baselineImageCount = scope().querySelectorAll("img").length;
+    // A "count went up" baseline doesn't work here: this script runs as its
+    // own separate executeJavaScript call, after buildUploadImageScript's
+    // call already completed - by the time this baseline would be taken,
+    // the thumbnail has often already rendered, so a same-script "before"
+    // count is meaningless. Match ChatGPT's own uploaded-file thumbnail
+    // directly instead - confirmed live (real DOM capture) that once
+    // ChatGPT ingests the file, it renders an <img> whose src is its own
+    // backend-api file endpoint (the same host pattern already used above
+    // by GENERATED_IMAGE_SELECTOR for generated images, scoped here to the
+    // composer only so it can't match a result image in the message list).
+    const uploadedThumbSelector = 'img[src*="/backend-api/estuary/content"]';
 
     console.log("[ChatGPT] [Step 5/10] Waiting for upload preview thumbnail", {
-      selector: "img (within composer form/parent)",
-      baselineImageCount
+      selector: uploadedThumbSelector + " (within composer form/parent)"
     });
 
     const check = () => {
 
-      const currentImageCount = scope().querySelectorAll("img").length;
+      const thumb = scope().querySelector(uploadedThumbSelector);
 
-      if (currentImageCount > baselineImageCount) {
+      if (thumb) {
 
         console.log("[ChatGPT] [Step 5/10] OK - upload preview detected", {
-          currentImageCount
+          src: thumb.src.slice(0, 120)
         });
 
         console.log("[ChatGPT] [Step 6/10] OK - upload completed");
@@ -860,7 +874,7 @@ ${buildDomSnapshotSnippet()}
         const snapshot = domSnapshot();
 
         console.error("[ChatGPT] [Step 5/10] FAILED - upload preview not detected within timeout", {
-          selector: "img (within composer form/parent)",
+          selector: uploadedThumbSelector + " (within composer form/parent)",
           domSnapshot: snapshot
         });
 
@@ -868,7 +882,7 @@ ${buildDomSnapshotSnippet()}
           success: false,
           step: 5,
           stepName: "upload-preview-detected",
-          selector: "img (within composer form/parent)",
+          selector: uploadedThumbSelector + " (within composer form/parent)",
           domSnapshot: snapshot,
           reason: "upload thumbnail not detected within timeout"
         });
@@ -890,13 +904,11 @@ ${buildDomSnapshotSnippet()}
 }
 
 // ============================================================================
-// P0 correction: Job independence now comes from navigating the one shared
-// webview to a Job's own conversation URL (see QueueRunner's "Activate Job"
-// step), not from a separate browser profile per Job. That navigation is a
-// real page load, so - unlike every other step here, which always ran on an
-// already-settled page - the composer isn't guaranteed to exist yet the
-// instant navigation resolves. This just waits for it before anything else
-// runs.
+// A freshly-created Workspace webview navigates to its saved
+// conversationUrl (see BrowserPool.ensure()), a real page load - so,
+// unlike every other step here, which always ran on an already-settled
+// page, the composer isn't guaranteed to exist yet the instant that
+// navigation resolves. This just waits for it before anything else runs.
 // ============================================================================
 
 export function buildWaitComposerReadyScript() {

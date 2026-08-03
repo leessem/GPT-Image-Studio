@@ -31,46 +31,21 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
   },
 
   // ==========================
-  // Project API
-  // ==========================
-
-  project: {
-    open() {
-      return ipcRenderer.invoke("project:open");
-    },
-
-    save(filePath: string, project: unknown) {
-      return ipcRenderer.invoke(
-        "project:save",
-        filePath,
-        project
-      );
-    },
-
-    saveAs(project: unknown) {
-      return ipcRenderer.invoke(
-        "project:saveAs",
-        project
-      );
-    }
-  },
-
-  // ==========================
   // Image API
   // ==========================
 
   image: {
-    armDownload(jobId: string) {
-      ipcRenderer.sendSync("image:armDownload", jobId);
+    armDownload(id: string, baseName: string) {
+      ipcRenderer.sendSync("image:armDownload", id, baseName);
     },
 
-    waitForDownload(jobId: string) {
+    waitForDownload(id: string) {
       return new Promise<string>((resolve, reject) => {
         const handler = (
           _event: Electron.IpcRendererEvent,
-          payload: { jobId: string | null; filePath: string | null }
+          payload: { id: string | null; filePath: string | null }
         ) => {
-          if (payload.jobId !== jobId)
+          if (payload.id !== id)
             return;
 
           ipcRenderer.off("image:downloaded", handler);
@@ -78,7 +53,7 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
           if (payload.filePath) {
             resolve(payload.filePath);
           } else {
-            reject(new Error("Download failed for job " + jobId));
+            reject(new Error("Download failed for " + id));
           }
         };
 
@@ -100,23 +75,10 @@ declare global {
       send: typeof ipcRenderer.send;
       invoke: typeof ipcRenderer.invoke;
 
-      project: {
-        open(): Promise<{ path: string; data: unknown } | null>;
-
-        save(
-          filePath: string,
-          project: unknown
-        ): Promise<boolean>;
-
-        saveAs(
-          project: unknown
-        ): Promise<string | null>;
-      };
-
       image: {
-        armDownload(jobId: string): void;
+        armDownload(id: string, baseName: string): void;
 
-        waitForDownload(jobId: string): Promise<string>;
+        waitForDownload(id: string): Promise<string>;
 
         verifyFile(
           filePath: string

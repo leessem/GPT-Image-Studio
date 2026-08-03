@@ -1,17 +1,21 @@
 // ============================================================================
 // File : src/components/Browser/Browser.tsx
 //
-// P0 correction: back to a single <webview> on a single shared persistent
-// partition - one login, one session, shared cookies/localStorage across
-// every Job. A Job's independence comes from its own ChatGPT conversation
-// URL (see QueueRunner's "Activate Job" step), not from a separate browser
-// profile.
+// Architecture (2026-08-03, V1.0): one persistent <webview> per Workspace
+// (a Workspace IS a tab), all on the SAME partition (one shared login),
+// instead of one shared <webview> navigated between conversations. A
+// Workspace's independence comes from literally owning its own webview/
+// guest process, which stays parked on its own conversation permanently -
+// switching Workspaces is a pure show/hide, never a navigation. A webview
+// is created lazily the first time a Workspace becomes active (selected,
+// or generated) and is only ever torn down when that Workspace is closed.
 // ============================================================================
 
 import {
   forwardRef,
   useImperativeHandle,
   useRef,
+  useState,
 } from "react";
 import "./Browser.css";
 
@@ -26,87 +30,279 @@ export interface BrowserHandle {
   goForward(): void;
 
   /**
-   * Navigates the shared webview to a Job's own conversation URL, or to
-   * CHATGPT_HOME_URL to start a fresh one.
+   * Navigates this Workspace's own webview to a specific URL, or to
+   * CHATGPT_HOME_URL to start a fresh conversation. Only ever needed once,
+   * right after this webview is created (BrowserPool.ensure() does this
+   * itself) - the generation pipeline no longer calls this on every run.
    */
   loadURL(url: string): Promise<void>;
 
-  /** The webview's current URL - used to capture a Job's conversation URL
-   *  right after ChatGPT creates it. */
+  /** This Workspace's webview's current URL - used to capture its own
+   *  conversation URL right after ChatGPT creates it. */
   getCurrentUrl(): string;
 }
 
-const Browser = forwardRef<BrowserHandle>((_, ref) => {
-  const webviewRef = useRef<Electron.WebviewTag>(null);
+export interface BrowserPoolHandle {
 
-  useImperativeHandle(ref, () => ({
-    async execute(script: string) {
-      if (!webviewRef.current) {
-        console.error(
-          "[Queue] browser.execute() aborted: webview is not mounted yet"
-        );
-        return undefined;
-      }
+  /**
+   * Returns the BrowserHandle for a Workspace, creating its webview first
+   * if this is the first time that Workspace has become active.
+   * `initialUrl`, when given, is the URL a freshly-created webview should
+   * navigate to once (a Workspace's saved conversationUrl, so restarting
+   * the app and activating a Workspace again restores its conversation);
+   * omitted/undefined means start a fresh chat. Has no effect if the
+   * webview already exists.
+   */
+  ensure(workspaceId: string, initialUrl?: string): Promise<BrowserHandle>;
 
-      console.log("[Queue] browser.execute() injecting script into webview");
+  /** Returns the BrowserHandle for a Workspace only if its webview
+   *  already exists - never creates one. */
+  get(workspaceId: string): BrowserHandle | undefined;
 
-      const result = await webviewRef.current.executeJavaScript(script);
+  /** Tears down a Workspace's webview. Only called when the Workspace
+   *  itself is closed. */
+  destroy(workspaceId: string): void;
 
-      console.log("[Queue] browser.execute() returned", result);
+}
 
-      return result;
-    },
+interface BrowserPoolProps {
+  activeWorkspaceId: string | null;
+}
 
-    reload() {
-      webviewRef.current?.reload();
-    },
+const BrowserPool = forwardRef<BrowserPoolHandle, BrowserPoolProps>(
+  ({ activeWorkspaceId }, ref) => {
 
-    goBack() {
-      if (webviewRef.current?.canGoBack()) {
-        webviewRef.current.goBack();
-      }
-    },
+    const [workspaceIds, setWorkspaceIds] = useState<string[]>([]);
 
-    goForward() {
-      if (webviewRef.current?.canGoForward()) {
-        webviewRef.current.goForward();
-      }
-    },
+    const webviewRefs = useRef(new Map<string, Electron.WebviewTag>());
+    const readyWorkspaceIds = useRef(new Set<string>());
+    const pendingInitialUrls = useRef(new Map<string, string | undefined>());
+    const pendingResolvers = useRef(new Map<string, () => void>());
+    const wiredWorkspaceIds = useRef(new Set<string>());
+    const refCallbacks = useRef(
+      new Map<string, (el: Electron.WebviewTag | null) => void>()
+    );
 
-    async loadURL(url: string) {
-      if (!webviewRef.current) {
-        console.error(
-          "[Queue] browser.loadURL() aborted: webview is not mounted yet"
-        );
-        return;
-      }
+    const makeHandle = (workspaceId: string): BrowserHandle => {
 
-      console.log("[Queue] browser.loadURL()", url);
+      const getEl = () => webviewRefs.current.get(workspaceId);
 
-      await webviewRef.current.loadURL(url);
-    },
+      return {
 
-    getCurrentUrl() {
-      return webviewRef.current?.getURL() ?? "";
-    },
-  }));
+        async execute(script: string) {
 
-  return (
-    <div className="browser">
-      <div className="browser-header">
-        ChatGPT Browser
+          const el = getEl();
+
+          if (!el) {
+            console.error(
+              `[BrowserPool] execute() aborted: no webview for workspace ${workspaceId}`
+            );
+            return undefined;
+          }
+
+          return el.executeJavaScript(script);
+
+        },
+
+        reload() {
+          getEl()?.reload();
+        },
+
+        goBack() {
+          const el = getEl();
+          if (el?.canGoBack()) el.goBack();
+        },
+
+        goForward() {
+          const el = getEl();
+          if (el?.canGoForward()) el.goForward();
+        },
+
+        async loadURL(url: string) {
+
+          const el = getEl();
+
+          if (!el) {
+            console.error(
+              `[BrowserPool] loadURL() aborted: no webview for workspace ${workspaceId}`
+            );
+            return;
+          }
+
+          await el.loadURL(url);
+
+        },
+
+        getCurrentUrl() {
+          return getEl()?.getURL() ?? "";
+        },
+
+      };
+
+    };
+
+    const getRefCallback = (workspaceId: string) => {
+
+      let callback = refCallbacks.current.get(workspaceId);
+
+      if (callback)
+        return callback;
+
+      callback = (el: Electron.WebviewTag | null) => {
+
+        if (!el) {
+          webviewRefs.current.delete(workspaceId);
+          return;
+        }
+
+        webviewRefs.current.set(workspaceId, el);
+
+        if (wiredWorkspaceIds.current.has(workspaceId))
+          return;
+
+        wiredWorkspaceIds.current.add(workspaceId);
+
+        const onDomReady = () => {
+
+          el.removeEventListener("dom-ready", onDomReady);
+
+          const initialUrl = pendingInitialUrls.current.get(workspaceId);
+
+          pendingInitialUrls.current.delete(workspaceId);
+
+          const finish = () => {
+
+            readyWorkspaceIds.current.add(workspaceId);
+
+            const resolve = pendingResolvers.current.get(workspaceId);
+
+            pendingResolvers.current.delete(workspaceId);
+
+            resolve?.();
+
+          };
+
+          if (initialUrl && initialUrl !== CHATGPT_HOME_URL) {
+
+            console.log(
+              `[BrowserPool] webview for workspace ${workspaceId} ready, restoring conversation`,
+              initialUrl
+            );
+
+            el.loadURL(initialUrl).then(finish).catch(finish);
+
+          }
+          else {
+
+            console.log(
+              `[BrowserPool] webview for workspace ${workspaceId} ready (fresh chat)`
+            );
+
+            finish();
+
+          }
+
+        };
+
+        el.addEventListener("dom-ready", onDomReady);
+
+      };
+
+      refCallbacks.current.set(workspaceId, callback);
+
+      return callback;
+
+    };
+
+    useImperativeHandle(ref, () => ({
+
+      ensure(workspaceId: string, initialUrl?: string) {
+
+        if (readyWorkspaceIds.current.has(workspaceId))
+          return Promise.resolve(makeHandle(workspaceId));
+
+        return new Promise<BrowserHandle>(resolve => {
+
+          pendingResolvers.current.set(workspaceId, () => resolve(makeHandle(workspaceId)));
+
+          pendingInitialUrls.current.set(workspaceId, initialUrl);
+
+          setWorkspaceIds(prev =>
+            (prev.includes(workspaceId) ? prev : [...prev, workspaceId])
+          );
+
+        });
+
+      },
+
+      get(workspaceId: string) {
+
+        return readyWorkspaceIds.current.has(workspaceId)
+          ? makeHandle(workspaceId)
+          : undefined;
+
+      },
+
+      destroy(workspaceId: string) {
+
+        webviewRefs.current.delete(workspaceId);
+        readyWorkspaceIds.current.delete(workspaceId);
+        pendingInitialUrls.current.delete(workspaceId);
+        pendingResolvers.current.delete(workspaceId);
+        wiredWorkspaceIds.current.delete(workspaceId);
+        refCallbacks.current.delete(workspaceId);
+
+        setWorkspaceIds(prev => prev.filter(id => id !== workspaceId));
+
+      },
+
+    }));
+
+    return (
+
+      <div className="browser">
+
+        <div className="browser-header">
+
+          ChatGPT Browser
+
+        </div>
+
+        <div className="browser-body">
+
+          {workspaceIds.map(workspaceId => (
+
+            <webview
+
+              key={workspaceId}
+
+              ref={getRefCallback(workspaceId)}
+
+              src={CHATGPT_HOME_URL}
+
+              partition={PARTITION}
+
+              className="chatgpt-webview"
+
+              style={{
+                display: workspaceId === activeWorkspaceId ? "inline-flex" : "none",
+              }}
+
+            />
+
+          ))}
+
+        </div>
+
       </div>
 
-      <div className="browser-body">
-        <webview
-          ref={webviewRef}
-          src={CHATGPT_HOME_URL}
-          partition={PARTITION}
-          className="chatgpt-webview"
-        />
-      </div>
-    </div>
-  );
-});
+    );
 
-export default Browser;
+  }
+);
+
+export default BrowserPool;
+
+// ============================================================================
+// End of File
+// ============================================================================
