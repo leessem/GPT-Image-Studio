@@ -10,6 +10,7 @@
 
 import { Workspace } from "../types/Workspace";
 import { BrowserHandle } from "../components/Browser/Browser";
+import { logWorkspaceEvent } from "../utils/workspaceLogger";
 import {
     buildPromptScript,
     buildWaitImageScript,
@@ -142,6 +143,34 @@ export async function runGenerate({
 
     console.log("[Generate] started for workspace", workspace.id);
 
+    logWorkspaceEvent(workspace.id, "Generate Start", {
+        webContentsId: browser.getWebContentsId(),
+        conversationUrl: workspace.conversationUrl,
+    });
+
+    // TEMPORARY (V1.1 Workspace-isolation audit): every status:"error"
+    // transition below goes through this one place so it always logs
+    // Workspace ID + reason + webContentsId + conversationUrl at the
+    // exact moment the error is raised - see src/utils/workspaceLogger.ts.
+    const raiseError = (reason: string, extra?: Record<string, unknown>) => {
+
+        logWorkspaceEvent(workspace.id, "Error Raised", {
+            reason,
+            webContentsId: browser.getWebContentsId(),
+            conversationUrl: workspace.conversationUrl,
+            // Captured here (not at the log call site) so the stack's
+            // top frame is always this raiseError() call itself -
+            // its second frame is the exact generate.ts line that
+            // detected the failure (file/function/line, per the audit's
+            // "identify exactly which line" requirement).
+            stack: new Error().stack,
+            ...extra,
+        });
+
+        onUpdate(w => ({ ...w, status: "error" }));
+
+    };
+
     onStart?.();
 
     try {
@@ -167,7 +196,7 @@ export async function runGenerate({
                 { reason: composerReady?.reason ?? "no result" }
             );
 
-            onUpdate(w => ({ ...w, status: "error" }));
+            raiseError("composer-not-ready", { detail: composerReady?.reason ?? "no result" });
 
             return;
 
@@ -181,6 +210,10 @@ export async function runGenerate({
         // =====================================================================
 
         if (workspace.uploadedImagePath) {
+
+            logWorkspaceEvent(workspace.id, "Upload Start", {
+                webContentsId: browser.getWebContentsId(),
+            });
 
             const uploadResult = await browser.execute(
 
@@ -205,7 +238,10 @@ export async function runGenerate({
                     }
                 );
 
-                onUpdate(w => ({ ...w, status: "error" }));
+                raiseError(uploadResult?.stepName ?? "upload-failed", {
+                    selector: uploadResult?.selector,
+                    detail: uploadResult?.reason ?? "no result",
+                });
 
                 return;
 
@@ -236,11 +272,18 @@ export async function runGenerate({
                     }
                 );
 
-                onUpdate(w => ({ ...w, status: "error" }));
+                raiseError(uploadWaitResult?.stepName ?? "upload-not-detected", {
+                    selector: uploadWaitResult?.selector,
+                    detail: uploadWaitResult?.reason ?? "no result",
+                });
 
                 return;
 
             }
+
+            logWorkspaceEvent(workspace.id, "Upload Complete", {
+                webContentsId: browser.getWebContentsId(),
+            });
 
             console.log("[Generate] OK - upload completed");
 
@@ -265,7 +308,9 @@ export async function runGenerate({
                     `[Generate] FAILED - normal chat interface not active after upload: ${chatInterfaceResult?.reason ?? "no result"}`
                 );
 
-                onUpdate(w => ({ ...w, status: "error" }));
+                raiseError("chat-interface-not-active-after-upload", {
+                    detail: chatInterfaceResult?.reason ?? "no result",
+                });
 
                 return;
 
@@ -297,7 +342,9 @@ export async function runGenerate({
                 `[Generate] FAILED at step "${promptResult?.step}": ${promptResult?.reason ?? "no result"}`
             );
 
-            onUpdate(w => ({ ...w, status: "error" }));
+            raiseError(promptResult?.step ?? "prompt-send-failed", {
+                detail: promptResult?.reason ?? "no result",
+            });
 
             return;
 
@@ -348,7 +395,7 @@ export async function runGenerate({
 
             console.error("[Generate] FAILED - image generation was not detected");
 
-            onUpdate(w => ({ ...w, status: "error" }));
+            raiseError("image-generation-not-detected");
 
             return;
 
@@ -372,7 +419,9 @@ export async function runGenerate({
                 `[Generate] Failed to click generated image: ${openViewerResult?.reason ?? "no result"}`
             );
 
-            onUpdate(w => ({ ...w, status: "error" }));
+            raiseError("open-image-viewer-failed", {
+                detail: openViewerResult?.reason ?? "no result",
+            });
 
             return;
 
@@ -396,13 +445,19 @@ export async function runGenerate({
 
         if (!viewerResult?.success) {
 
-            onUpdate(w => ({ ...w, status: "error" }));
+            raiseError("image-viewer-did-not-open");
 
             return;
 
         }
 
         console.log("[Generate] image viewer opened");
+
+        logWorkspaceEvent(workspace.id, "Download Started", {
+            webContentsId: browser.getWebContentsId(),
+            baseName: baseFileName(workspace.name),
+            workTypePrefix: workspace.workTypePrefix ?? "",
+        });
 
         window.ipcRenderer.image.armDownload(
             workspace.id,
@@ -424,7 +479,9 @@ export async function runGenerate({
                 `[Generate] Download button not found: ${downloadClickResult?.reason ?? "no result"}`
             );
 
-            onUpdate(w => ({ ...w, status: "error" }));
+            raiseError("download-button-not-found", {
+                detail: downloadClickResult?.reason ?? "no result",
+            });
 
             return;
 
@@ -438,16 +495,23 @@ export async function runGenerate({
 
             console.log("[Generate] download completed:", imagePath);
 
+            logWorkspaceEvent(workspace.id, "Download Completed", {
+                webContentsId: browser.getWebContentsId(),
+                imagePath,
+            });
+
         }
         catch (err) {
 
             console.error("[Generate] download did not complete:", err);
 
-            onUpdate(w => ({ ...w, status: "error" }));
+            raiseError("download-did-not-complete", { detail: String(err) });
 
             return;
 
         }
+
+        logWorkspaceEvent(workspace.id, "Save Started", { imagePath });
 
         const verifyResult = await window.ipcRenderer.image.verifyFile(imagePath);
 
@@ -455,11 +519,16 @@ export async function runGenerate({
 
             console.error(`[Generate] Downloaded file not found on disk: ${imagePath}`);
 
-            onUpdate(w => ({ ...w, status: "error" }));
+            raiseError("saved-file-not-found-on-disk", { imagePath });
 
             return;
 
         }
+
+        logWorkspaceEvent(workspace.id, "Save Completed", {
+            imagePath,
+            size: verifyResult.size,
+        });
 
         console.log(`[Generate] file verified on disk (${verifyResult.size} bytes): ${imagePath}`);
 
@@ -479,7 +548,9 @@ export async function runGenerate({
                 `[Generate] Failed to close image viewer: ${closeViewerResult?.reason ?? "no result"}`
             );
 
-            onUpdate(w => ({ ...w, status: "error" }));
+            raiseError("close-image-viewer-failed", {
+                detail: closeViewerResult?.reason ?? "no result",
+            });
 
             return;
 
@@ -496,6 +567,11 @@ export async function runGenerate({
             completedAt: new Date().toISOString(),
 
         }));
+
+        logWorkspaceEvent(workspace.id, "Generate Complete", {
+            webContentsId: browser.getWebContentsId(),
+            imagePath,
+        });
 
         console.log("[Generate] ==== done ====");
 
@@ -521,6 +597,13 @@ export async function runGenerate({
     catch (err) {
 
         console.error(err);
+
+        logWorkspaceEvent(workspace.id, "Error Raised", {
+            reason: "uncaught-exception",
+            detail: String(err),
+            webContentsId: browser.getWebContentsId(),
+            conversationUrl: workspace.conversationUrl,
+        });
 
         onUpdate(w => (w.status === "running" ? { ...w, status: "error" } : w));
 

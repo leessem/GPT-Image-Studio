@@ -1,6 +1,33 @@
 # ROADMAP
 
+## Version 1.1.1 - RELEASED (2026-08-05)
+
+P0 fix: the cross-Workspace Error bug that survived v1.1.0 (see WORKLOG
+Session 22) - creating/deleting a Workspace while another Workspace was
+mid-generation could clobber that other Workspace's live state with a
+stale snapshot, incorrectly flipping it to Error. Root cause confirmed
+via dev-only diagnostic logging (an automatic clobber check, not
+manual log-reading) before the fix was written, then re-verified with
+a live repro after:
+
+- Fixed `onAddWorkspace`/`onDeleteWorkspace` in `Workspace.tsx` - the
+  only two places in the app that replaced Workspace state from a
+  stale snapshot instead of React's live state - to use the same
+  functional `setWorkspaces(prev => ...)` form already used
+  everywhere else. No other behavior changed.
+- WS-AUDIT diagnostic logging kept in the codebase for any future
+  isolation work, but gated to development builds only (`import.meta.
+  env.DEV` in the renderer, `!app.isPackaged` in the main process) -
+  produces no output in the packaged app.
+- Official production installer (`GPT Image Studio v1.1.1 Setup.exe` /
+  `Portable.exe`).
+
 ## Version 1.1.0 - RELEASED (2026-08-05)
+
+**Known issue, fixed in 1.1.1 above:** the cross-Workspace Error bug
+this release intended to fix was still reproducible under a different
+trigger (creating a new Workspace mid-generation, not just switching to
+one) - see WORKLOG Session 22.
 
 Maintenance release - no new features. Fixes the cross-Workspace
 download attribution race reported from a second PC (see WORKLOG

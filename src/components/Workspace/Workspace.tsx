@@ -21,6 +21,13 @@ import { PromptDraft, PromptItem } from "../../types/Prompt";
 import { WorkType } from "../../types/WorkType";
 
 import { runGenerate } from "../../services/generate";
+import {
+    logWorkspaceEvent,
+    describeWorkspace,
+    diffWorkspaceSnapshots,
+    logWorkspaceStateDiff,
+    logClobberConfirmed,
+} from "../../utils/workspaceLogger";
 
 import PromptStore from "../../store/Promptstore";
 import WorkTypeStore from "../../store/WorkTypeStore";
@@ -93,6 +100,115 @@ export default function Workspace() {
         browserPoolRef.current.ensure(currentWorkspaceId, workspace?.conversationUrl);
 
     }, [currentWorkspaceId]);
+
+    // ========================================================================
+    // TEMPORARY (root-cause audit for the still-reproducible cross-
+    // Workspace Error bug - release policy: v1.1.0 stays frozen, a fix
+    // ships as v1.1.1 only after this is proven): every setWorkspaces
+    // call in this file goes through this one wrapper, purely for
+    // logging - behavior is byte-for-byte identical to calling
+    // setWorkspaces directly.
+    //
+    // Every handler in this file EXCEPT onAddWorkspace and
+    // onDeleteWorkspace already uses React's functional update form
+    // (`setWorkspaces(prev => ...)`), which is safe under concurrent
+    // updates because `prev` is always whatever React actually has at
+    // apply time. onAddWorkspace/onDeleteWorkspace are the only two
+    // call sites that instead compute a full replacement array from a
+    // `workspaces`/`workspacesRef.current` snapshot read at the START
+    // of the click handler, then call `setWorkspaces(next)` directly -
+    // a plain replace, not a merge. If that update and another
+    // Workspace's in-flight generate.ts onUpdate() (also a
+    // setWorkspaces call, from an awaited browser.execute() promise
+    // resolving around the same moment) land in the same React batch,
+    // the plain replace silently wins and discards whatever the other
+    // update just applied, because `next`/`remaining` never incorporated
+    // it in the first place.
+    //
+    // This wrapper logs, for every call, a full BEFORE/AFTER state-diff
+    // (status, conversationUrl, and derived Generate/Upload/Error/Save
+    // state per Workspace - see describeWorkspace in workspaceLogger.ts)
+    // plus a field-level diff, so exactly which property changed is
+    // provable from the log rather than eyeballed.
+    //
+    // It also runs an automatic, mechanical clobber check on the two
+    // REPLACE call sites: a REPLACE's `result` was built from a
+    // Workspace[] snapshot read at the START of the click handler, not
+    // from `prev` (what React actually has when the update is applied).
+    // Every Workspace carried over unchanged by the REPLACE (present in
+    // both `prev` and `result`) MUST therefore be byte-identical to its
+    // live `prev` entry - if any field differs, `result` provably
+    // overwrote a live update with a stale one, for exactly the fields
+    // logged under [WS-AUDIT][CLOBBER CONFIRMED]. This is not a
+    // heuristic: it fires if and only if a REPLACE actually discarded a
+    // concurrent change, for the exact Workspace/fields it discarded.
+    //
+    // Note: React 18 StrictMode (see src/main.tsx) intentionally
+    // double-invokes updater functions in dev, so each call may log
+    // twice here - harmless, expected, not a sign of a double update.
+    // ========================================================================
+
+    const setWorkspacesLogged = (
+        origin: string,
+        next: Workspace[] | ((prev: Workspace[]) => Workspace[])
+    ) => {
+
+        const isReplace = typeof next !== "function";
+
+        setWorkspaces(prev => {
+
+            const before = prev.map(describeWorkspace);
+
+            const result = typeof next === "function" ? next(prev) : next;
+
+            const after = result.map(describeWorkspace);
+
+            const diffs = diffWorkspaceSnapshots(before, after);
+
+            logWorkspaceStateDiff(origin, isReplace ? "REPLACE" : "functional", { before, after, diffs });
+
+            if (isReplace) {
+
+                const prevById = new Map(prev.map(w => [w.id, w]));
+
+                for (const w of result) {
+
+                    const live = prevById.get(w.id);
+
+                    // Not carried over from the stale snapshot (a
+                    // genuinely new Workspace, e.g. addWorkspace's
+                    // `created`) - nothing to compare against.
+                    if (!live)
+                        continue;
+
+                    const liveDescriptor = describeWorkspace(live);
+                    const staleDescriptor = describeWorkspace(w);
+
+                    const staleFields = (
+                        Object.keys(liveDescriptor) as (keyof typeof liveDescriptor)[]
+                    )
+                        .filter(key => liveDescriptor[key] !== staleDescriptor[key])
+                        .map(key => ({
+                            field: key,
+                            live: liveDescriptor[key],
+                            staleValueApplied: staleDescriptor[key],
+                        }));
+
+                    if (staleFields.length > 0) {
+
+                        logClobberConfirmed(origin, w.id, staleFields);
+
+                    }
+
+                }
+
+            }
+
+            return result;
+
+        });
+
+    };
 
     // ========================================================================
     // Prompt Library
@@ -189,7 +305,7 @@ export default function Workspace() {
             workspace,
 
             onUpdate: updater =>
-                setWorkspaces(prev => updateWorkspace(prev, workspace.id, updater)),
+                setWorkspacesLogged("generate:onUpdate", prev => updateWorkspace(prev, workspace.id, updater)),
 
             onError: err => console.error(err),
 
@@ -214,7 +330,7 @@ export default function Workspace() {
         // the "instant" part. Re-pointing the webview at a fresh
         // conversation is a real page navigation (not instant), so it
         // fires after, without the reset ever waiting on it.
-        setWorkspaces(prev => clearWorkspace(prev, workspace.id));
+        setWorkspacesLogged("clearWorkspace", prev => clearWorkspace(prev, workspace.id));
 
         browserPoolRef.current?.get(workspace.id)?.loadURL(CHATGPT_HOME_URL);
 
@@ -226,11 +342,18 @@ export default function Workspace() {
 
     const onAddWorkspace = () => {
 
-        const { workspaces: next, created } = addWorkspace(workspaces);
+        // `created` is independent of the existing Workspace list
+        // (createWorkspace() takes no input) - only the array append
+        // itself needs to happen against React's live `prev`, not a
+        // snapshot read at the start of this handler (see
+        // setWorkspacesLogged's clobber-detection comment above).
+        const { created } = addWorkspace(workspaces);
 
-        setWorkspaces(next);
+        setWorkspacesLogged("addWorkspace", prev => [...prev, created]);
 
         setCurrentWorkspaceId(created.id);
+
+        logWorkspaceEvent(created.id, "Workspace Created");
 
     };
 
@@ -242,19 +365,35 @@ export default function Workspace() {
 
     const onDeleteWorkspace = (id: string) => {
 
-        const remaining = deleteWorkspace(workspacesRef.current, id);
+        // The array removal itself now runs against React's live
+        // `prev`, not a workspacesRef.current snapshot (see
+        // setWorkspacesLogged's clobber-detection comment above). The
+        // currentWorkspaceId fallback below is unrelated to that bug
+        // (it only ever picks which tab to switch to, never mutates
+        // Workspace data) and is left exactly as it was, still off
+        // workspacesRef.current.
+        setWorkspacesLogged("deleteWorkspace", prev => deleteWorkspace(prev, id));
 
-        setWorkspaces(remaining);
+        setCurrentWorkspaceId(prev => {
 
-        setCurrentWorkspaceId(prev => (prev === id ? remaining[0].id : prev));
+            if (prev !== id)
+                return prev;
+
+            const remaining = deleteWorkspace(workspacesRef.current, id);
+
+            return remaining[0].id;
+
+        });
 
         browserPoolRef.current?.destroy(id);
+
+        logWorkspaceEvent(id, "Workspace Destroyed");
 
     };
 
     const onUploadImage = (dataUrl: string) => {
 
-        setWorkspaces(prev =>
+        setWorkspacesLogged("uploadImage", prev =>
             setWorkspaceUploadedImage(prev, currentWorkspace.id, dataUrl)
         );
 
@@ -262,7 +401,7 @@ export default function Workspace() {
 
     const onRemoveImage = () => {
 
-        setWorkspaces(prev =>
+        setWorkspacesLogged("removeImage", prev =>
             setWorkspaceUploadedImage(prev, currentWorkspace.id, undefined)
         );
 
@@ -275,7 +414,7 @@ export default function Workspace() {
         if (!item)
             return;
 
-        setWorkspaces(prev =>
+        setWorkspacesLogged("selectPrompt", prev =>
             setWorkspacePrompt(
                 prev,
                 currentWorkspace.id,
@@ -300,7 +439,7 @@ export default function Workspace() {
             ? workTypes.find(w => w.id === next)
             : undefined;
 
-        setWorkspaces(prev =>
+        setWorkspacesLogged("selectWorkType", prev =>
             setWorkspaceWorkType(
                 prev,
                 currentWorkspace.id,

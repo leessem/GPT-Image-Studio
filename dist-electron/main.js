@@ -1,122 +1,139 @@
-import { app as i, session as g, ipcMain as o, shell as I, BrowserWindow as O, dialog as y } from "electron";
-import { fileURLToPath as j } from "node:url";
-import c from "node:path";
-import a from "node:fs";
-import { execSync as R } from "node:child_process";
-const x = c.dirname(j(import.meta.url));
-process.env.APP_ROOT = c.join(x, "..");
-const A = i.requestSingleInstanceLock();
-A || i.quit();
-i.disableHardwareAcceleration();
-i.commandLine.appendSwitch("disable-gpu");
-i.commandLine.appendSwitch("disable-gpu-compositing");
-const T = process.env.DEVTOOLS_ENABLED === "true", b = process.env.VITE_DEV_SERVER_URL, C = c.join(process.env.APP_ROOT, "dist-electron"), E = c.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = b ? c.join(process.env.APP_ROOT, "public") : E;
-let s = null;
-const L = c.join(i.getPath("userData"), "settings.json");
-function N() {
+import { app as r, session as S, ipcMain as l, shell as F, BrowserWindow as E, dialog as y } from "electron";
+import { fileURLToPath as N } from "node:url";
+import d from "node:path";
+import c from "node:fs";
+import { execSync as j } from "node:child_process";
+const I = d.dirname(N(import.meta.url));
+process.env.APP_ROOT = d.join(I, "..");
+const R = r.requestSingleInstanceLock();
+R || r.quit();
+r.disableHardwareAcceleration();
+r.commandLine.appendSwitch("disable-gpu");
+r.commandLine.appendSwitch("disable-gpu-compositing");
+const T = process.env.DEVTOOLS_ENABLED === "true", b = process.env.VITE_DEV_SERVER_URL, z = d.join(process.env.APP_ROOT, "dist-electron"), x = d.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = b ? d.join(process.env.APP_ROOT, "public") : x;
+let o = null;
+const A = d.join(r.getPath("userData"), "settings.json");
+function V() {
   try {
-    const l = a.readFileSync(L, "utf-8"), e = JSON.parse(l);
-    if (e && typeof e == "object")
-      return e;
+    const a = c.readFileSync(A, "utf-8"), t = JSON.parse(a);
+    if (t && typeof t == "object")
+      return t;
   } catch {
   }
   return {};
 }
-function v(l) {
-  a.writeFileSync(
-    L,
-    JSON.stringify(l, null, 2),
+function D(a) {
+  c.writeFileSync(
+    A,
+    JSON.stringify(a, null, 2),
     "utf-8"
   );
 }
-const p = N();
-let f = p.downloadFolder ?? c.join(i.getPath("downloads"), "GPT Image Studio"), D = p.filenamePrefix ?? "★";
-const S = /* @__PURE__ */ new Map(), P = /* @__PURE__ */ new Map();
-function _(l) {
-  return l.replace(/[\\/:*?"<>|]/g, "_").trim();
+const w = V();
+let f = w.downloadFolder ?? d.join(r.getPath("downloads"), "GPT Image Studio"), O = w.filenamePrefix ?? "★";
+const P = /* @__PURE__ */ new Map(), v = /* @__PURE__ */ new Map(), U = !r.isPackaged;
+function g(a, t, e) {
+  U && console.log(
+    `[WS-AUDIT][main] ${(/* @__PURE__ */ new Date()).toISOString()} | workspace=${a ?? "unknown"} | event=${t}`,
+    e ?? {}
+  );
 }
-function V(l, e, t) {
-  const n = _(e) || "Untitled", d = _(D), r = _(t), u = `${d}${r}${n}`, w = `${u}.png`;
-  if (!a.existsSync(c.join(l, w)))
-    return w;
-  let m = 2, h = `${u}${m}.png`;
-  for (; a.existsSync(c.join(l, h)); )
-    m++, h = `${u}${m}.png`;
-  return h;
+function _(a) {
+  return a.replace(/[\\/:*?"<>|]/g, "_").trim();
 }
-i.on("second-instance", () => {
-  s && (s.isMinimized() && s.restore(), s.focus());
+function W(a, t, e) {
+  const n = _(t) || "Untitled", i = _(O), s = _(e), u = `${i}${s}${n}`, p = `${u}.png`;
+  if (!c.existsSync(d.join(a, p)))
+    return p;
+  let h = 2, m = `${u}${h}.png`;
+  for (; c.existsSync(d.join(a, m)); )
+    h++, m = `${u}${h}.png`;
+  return m;
+}
+r.on("second-instance", () => {
+  o && (o.isMinimized() && o.restore(), o.focus());
 });
-i.on("web-contents-created", (l, e) => {
-  e.on("will-attach-webview", (t, n) => {
+r.on("web-contents-created", (a, t) => {
+  t.on("will-attach-webview", (e, n) => {
     n.devTools = T;
   });
 });
-function F() {
-  s = new O({
+function L() {
+  o = new E({
     width: 1800,
     height: 1100,
     minWidth: 1400,
     minHeight: 900,
     title: "GPT Image Studio",
-    icon: c.join(process.env.VITE_PUBLIC, "icon.ico"),
+    icon: d.join(process.env.VITE_PUBLIC, "icon.ico"),
     autoHideMenuBar: !0,
     webPreferences: {
-      preload: c.join(x, "preload.mjs"),
+      preload: d.join(I, "preload.mjs"),
       contextIsolation: !0,
       nodeIntegration: !1,
       webviewTag: !0,
       sandbox: !0,
       devTools: T
     }
-  }), b ? s.loadURL(b) : s.loadFile(c.join(E, "index.html")), s.webContents.setWindowOpenHandler(() => ({
+  }), b ? o.loadURL(b) : o.loadFile(d.join(x, "index.html")), o.webContents.setWindowOpenHandler(() => ({
     action: "deny"
   }));
 }
-i.whenReady().then(() => {
-  g.defaultSession.setUserAgent(
-    g.defaultSession.getUserAgent()
-  ), a.existsSync(f) || a.mkdirSync(f, { recursive: !0 });
-  const l = (e, t, n) => {
-    const d = P.get(n.id), r = d ? S.get(d) : void 0;
-    d && S.delete(d);
-    const u = V(
+r.whenReady().then(() => {
+  S.defaultSession.setUserAgent(
+    S.defaultSession.getUserAgent()
+  ), c.existsSync(f) || c.mkdirSync(f, { recursive: !0 });
+  const a = (t, e, n) => {
+    const i = v.get(n.id), s = i ? P.get(i) : void 0;
+    g(i, "Download Started", {
+      webContentsId: n.id,
+      pendingArmedFor: (s == null ? void 0 : s.id) ?? null,
+      pendingBaseName: (s == null ? void 0 : s.baseName) ?? null
+    }), i && P.delete(i);
+    const u = W(
       f,
-      (r == null ? void 0 : r.baseName) ?? "Untitled",
-      (r == null ? void 0 : r.workTypePrefix) ?? ""
-    ), w = c.join(f, u);
-    t.setSavePath(w), t.once("done", (m, h) => {
-      s == null || s.webContents.send("image:downloaded", {
-        id: (r == null ? void 0 : r.id) ?? null,
-        filePath: h === "completed" ? w : null
+      (s == null ? void 0 : s.baseName) ?? "Untitled",
+      (s == null ? void 0 : s.workTypePrefix) ?? ""
+    ), p = d.join(f, u);
+    e.setSavePath(p), g(i, "Save Started", {
+      webContentsId: n.id,
+      filePath: p
+    }), e.once("done", (h, m) => {
+      g(i, "Save Completed", {
+        webContentsId: n.id,
+        filePath: p,
+        state: m
+      }), o == null || o.webContents.send("image:downloaded", {
+        id: (s == null ? void 0 : s.id) ?? null,
+        filePath: m === "completed" ? p : null
       });
     });
   };
-  g.defaultSession.on("will-download", l), g.fromPartition("persist:gpt-image-studio").on("will-download", l), o.on(
+  S.defaultSession.on("will-download", a), S.fromPartition("persist:gpt-image-studio").on("will-download", a), l.on(
     "image:armDownload",
-    (e, t, n, d) => {
-      S.set(t, { id: t, baseName: n, workTypePrefix: d }), e.returnValue = !0;
+    (t, e, n, i) => {
+      P.set(e, { id: e, baseName: n, workTypePrefix: i }), g(e, "Download Armed", { baseName: n, workTypePrefix: i }), t.returnValue = !0;
     }
-  ), o.on(
+  ), l.on(
     "browser:registerWebview",
-    (e, t, n) => {
-      P.set(n, t);
+    (t, e, n) => {
+      v.set(n, e), g(e, "Webview Registered", { webContentsId: n });
     }
-  ), o.on(
+  ), l.on(
     "browser:unregisterWebview",
-    (e, t) => {
-      for (const [n, d] of P)
-        d === t && P.delete(n);
-      S.delete(t);
+    (t, e) => {
+      for (const [n, i] of v)
+        i === e && (v.delete(n), g(e, "Webview Unregistered", { webContentsId: n }));
+      P.delete(e);
     }
-  ), o.handle(
+  ), l.handle(
     "image:verifyFile",
-    async (e, t) => {
-      const r = Date.now();
-      for (; Date.now() - r <= 3e3; ) {
+    async (t, e) => {
+      const s = Date.now();
+      for (; Date.now() - s <= 3e3; ) {
         try {
-          const u = a.statSync(t);
+          const u = c.statSync(e);
           if (u.size > 0)
             return { exists: !0, size: u.size };
         } catch {
@@ -125,78 +142,78 @@ i.whenReady().then(() => {
       }
       return { exists: !1, size: 0 };
     }
-  ), o.handle("settings:getDownloadFolder", () => f), o.handle("settings:browseDownloadFolder", async () => {
-    if (!s)
+  ), l.handle("settings:getDownloadFolder", () => f), l.handle("settings:browseDownloadFolder", async () => {
+    if (!o)
       return { success: !1 };
-    const e = await y.showOpenDialog(s, {
+    const t = await y.showOpenDialog(o, {
       properties: ["openDirectory", "createDirectory"]
     });
-    if (e.canceled || !e.filePaths[0])
+    if (t.canceled || !t.filePaths[0])
       return { success: !1, canceled: !0 };
-    const t = e.filePaths[0];
-    return a.existsSync(t) || a.mkdirSync(t, { recursive: !0 }), f = t, p.downloadFolder = t, v(p), { success: !0, folder: t };
-  }), o.handle("settings:getFilenamePrefix", () => D), o.handle("settings:setFilenamePrefix", (e, t) => (D = t, p.filenamePrefix = t, v(p), { success: !0 })), o.handle("settings:openDownloadFolder", async () => {
-    a.existsSync(f) || a.mkdirSync(f, { recursive: !0 });
-    const e = await I.openPath(f);
-    return { success: e === "", error: e || null };
-  }), o.handle(
+    const e = t.filePaths[0];
+    return c.existsSync(e) || c.mkdirSync(e, { recursive: !0 }), f = e, w.downloadFolder = e, D(w), { success: !0, folder: e };
+  }), l.handle("settings:getFilenamePrefix", () => O), l.handle("settings:setFilenamePrefix", (t, e) => (O = e, w.filenamePrefix = e, D(w), { success: !0 })), l.handle("settings:openDownloadFolder", async () => {
+    c.existsSync(f) || c.mkdirSync(f, { recursive: !0 });
+    const t = await F.openPath(f);
+    return { success: t === "", error: t || null };
+  }), l.handle(
     "settings:getFirstLaunchNoticeShown",
-    () => !!p.firstLaunchNoticeShown
-  ), o.handle("settings:markFirstLaunchNoticeShown", () => (p.firstLaunchNoticeShown = !0, v(p), { success: !0 })), o.handle("settings:getAppInfo", () => {
-    let e = null;
+    () => !!w.firstLaunchNoticeShown
+  ), l.handle("settings:markFirstLaunchNoticeShown", () => (w.firstLaunchNoticeShown = !0, D(w), { success: !0 })), l.handle("settings:getAppInfo", () => {
+    let t = null;
     try {
-      e = R("git rev-parse --short HEAD", {
+      t = j("git rev-parse --short HEAD", {
         cwd: process.env.APP_ROOT,
         stdio: ["ignore", "pipe", "ignore"]
       }).toString().trim();
     } catch {
-      e = null;
+      t = null;
     }
     return {
-      appVersion: i.getVersion(),
+      appVersion: r.getVersion(),
       electronVersion: process.versions.electron,
       nodeVersion: process.versions.node,
-      gitCommit: e
+      gitCommit: t
     };
-  }), o.handle(
+  }), l.handle(
     "promptLibrary:export",
-    async (e, t) => {
-      if (!s)
+    async (t, e) => {
+      if (!o)
         return { success: !1 };
-      const n = await y.showSaveDialog(s, {
+      const n = await y.showSaveDialog(o, {
         defaultPath: "prompt-library.json",
         filters: [{ name: "JSON", extensions: ["json"] }]
       });
-      return n.canceled || !n.filePath ? { success: !1, canceled: !0 } : (a.writeFileSync(n.filePath, t, "utf-8"), { success: !0, filePath: n.filePath });
+      return n.canceled || !n.filePath ? { success: !1, canceled: !0 } : (c.writeFileSync(n.filePath, e, "utf-8"), { success: !0, filePath: n.filePath });
     }
-  ), o.handle("promptLibrary:import", async () => {
-    if (!s)
+  ), l.handle("promptLibrary:import", async () => {
+    if (!o)
       return { success: !1 };
-    const e = await y.showOpenDialog(s, {
+    const t = await y.showOpenDialog(o, {
       properties: ["openFile"],
       filters: [{ name: "JSON", extensions: ["json"] }]
     });
-    if (e.canceled || !e.filePaths[0])
+    if (t.canceled || !t.filePaths[0])
       return { success: !1, canceled: !0 };
     try {
-      const t = a.readFileSync(e.filePaths[0], "utf-8");
-      return { success: !0, data: JSON.parse(t) };
+      const e = c.readFileSync(t.filePaths[0], "utf-8");
+      return { success: !0, data: JSON.parse(e) };
     } catch {
       return {
         success: !1,
         error: "Could not read or parse the selected file."
       };
     }
-  }), F();
+  }), L();
 });
-i.on("activate", () => {
-  O.getAllWindows().length === 0 && F();
+r.on("activate", () => {
+  E.getAllWindows().length === 0 && L();
 });
-i.on("window-all-closed", () => {
-  process.platform !== "darwin" && i.quit();
+r.on("window-all-closed", () => {
+  process.platform !== "darwin" && r.quit();
 });
 export {
-  C as MAIN_DIST,
-  E as RENDERER_DIST,
+  z as MAIN_DIST,
+  x as RENDERER_DIST,
   b as VITE_DEV_SERVER_URL
 };

@@ -15,6 +15,7 @@ import "./WorkspacePanel.css";
 import { Workspace } from "../../types/Workspace";
 import { PromptItem } from "../../types/Prompt";
 import { WorkType } from "../../types/WorkType";
+import { logWorkspaceEvent } from "../../utils/workspaceLogger";
 
 const STATUS_LABEL: Record<Workspace["status"], string> = {
 
@@ -119,9 +120,26 @@ export default function WorkspacePanel({
         if (!file || !file.type.startsWith("image/"))
             return;
 
+        // TEMPORARY (V1.1 Workspace-isolation audit): logs the exact
+        // Workspace this attach-image action targets - see
+        // src/utils/workspaceLogger.ts. This is the literal "Upload an
+        // image" UI action from the reported repro steps, distinct from
+        // generate.ts's later "Upload Start/Complete" (attaching the
+        // image into ChatGPT's own composer during Generate).
+        logWorkspaceEvent(workspace.id, "Upload Start", {
+            source: "attach-image-ui",
+            fileName: file.name,
+            fileSize: file.size,
+        });
+
         const reader = new FileReader();
 
         reader.onload = () => {
+
+            logWorkspaceEvent(workspace.id, "Upload Complete", {
+                source: "attach-image-ui",
+                fileName: file.name,
+            });
 
             onUploadImage(reader.result as string);
 

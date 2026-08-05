@@ -2519,3 +2519,154 @@ noted in Session 19 (never cleaned up until now).
 
 **Commit:** "Release Version 1.1.0", tag `v1.1.0`, both pushed to
 `origin/main`.
+
+## Session 22 (2026-08-05): P0 - cross-Workspace Error bug still reproducible after v1.1.0 - full audit + diagnostic instrumentation
+
+**Reported (second PC), still reproducible after Session 20/21's
+fix:** Workspace A `Upload image` -> `Generate`; before A finishes,
+create a brand-new Workspace B and `Upload image` into it - Workspace
+A immediately flips to `status: "error"` (generation sometimes keeps
+running underneath; automatic save sometimes also fails). Per
+instruction, release is frozen at v1.1.0 (tag/installers/GitHub
+release untouched, not modified or re-created) until this is fully
+root-caused and verified - a fix ships as v1.1.1 only after that.
+
+**Static audit** (no fix attempted yet, per instruction): read every
+file in the Workspace -> BrowserPool -> generate.ts -> main.ts chain.
+Session 20's webContents-keyed `pendingDownloads`/`webviewOwners` fix
+holds up - every `onUpdate` in `generate.ts` closes over its own
+`workspace.id` correctly, every `BrowserPool` map is keyed by
+`workspaceId`, attaching an image in `WorkspacePanel.tsx` makes zero
+IPC calls (pure `FileReader` -> renderer state). No stray
+document/window-level listeners found anywhere.
+
+**Prime suspect found, not yet confirmed live:** `Workspace.tsx`'s
+`onAddWorkspace` and `onDeleteWorkspace` are the *only* two handlers
+in the file that don't use React's functional `setWorkspaces(prev =>
+...)` form the way every other handler (including `generate.ts`'s own
+`onUpdate`) does. They instead compute a full replacement array from a
+`workspaces`/`workspacesRef.current` snapshot read at the start of the
+click handler and call `setWorkspaces(next)` / `setWorkspaces
+(remaining)` directly - a plain replace, not a merge. If that call and
+a *different* Workspace's in-flight `generate.ts` `onUpdate()` (itself
+a `setWorkspaces` call, resolving from an awaited
+`browser.execute()`/IPC round-trip) land in the same React batch, the
+plain replace can silently discard whatever the other update just
+applied - matches the new repro precisely (the break is specifically
+*creating* a new Workspace, not merely switching to one).
+
+**Instrumentation added** (temporary, dev-only, all under the
+`[WS-AUDIT]` / `[WS-AUDIT][main]` console tag - see
+`src/utils/workspaceLogger.ts`):
+- `generate.ts`: Generate Start/Complete, ChatGPT-side Upload
+  Start/Complete, Download Started/Completed, Save Started/Completed,
+  and every `status: "error"` transition unified through one
+  `raiseError(reason, extra)` helper that logs Error Raised with
+  reason + `webContentsId` + `conversationUrl` + a captured stack
+  (file/function/line) before setting status.
+- `Browser.tsx`: added `getWebContentsId()` to `BrowserHandle` so every
+  log line can be tied to the exact guest process.
+- `WorkspacePanel.tsx`: logs Upload Start/Complete on the literal
+  attach-image UI action (`source: "attach-image-ui"`, distinct from
+  generate.ts's same-named ChatGPT-upload-step events).
+- `Workspace.tsx`: every one of the 8 `setWorkspaces` call sites now
+  goes through a new `setWorkspacesLogged(origin, next)` wrapper -
+  behavior is unchanged (same functional-vs-replace semantics per call
+  site), but it logs `requestedSnapshot` (only meaningful for the two
+  REPLACE sites), `prevAtApplyTime` (what React's `prev` actually was
+  when the update was applied), and `result`, so a live repro can show
+  directly whether `onAddWorkspace`/`onDeleteWorkspace` clobbered a
+  concurrent update. Also added Workspace Created / Workspace Destroyed
+  events.
+- `electron/main.ts`: added `logMainEvent` - logs Download Started,
+  Save Started, Save Completed, Download Armed, Webview
+  Registered/Unregistered, each resolved against
+  `webviewOwners`/`pendingDownloads`.
+
+**Verification so far:** `npx tsc --noEmit` and `npx eslint . --ext
+ts,tsx` both clean. Smoke-tested `npm run dev` - Electron launched with
+no startup crash, `[WS-AUDIT][main]` confirmed firing correctly
+(`Webview Registered` for the first Workspace). Stopped the test
+instance immediately after (`taskkill electron.exe`) - did not attempt
+the actual two-Workspace repro, since it requires a real logged-in
+ChatGPT session.
+
+**Not done:** the live repro itself, and therefore no fix yet. Next
+session (with a real ChatGPT login): run the A-generate / B-create+
+upload repro with DevTools console + terminal open, capture the full
+`[WS-AUDIT]` timeline, confirm whether `onAddWorkspace`'s
+`setWorkspacesLogged("addWorkspace", ...)` line shows a `result` that's
+missing a status change visible in a concurrent `generate:onUpdate`
+call's `prevAtApplyTime` - if confirmed, the fix is converting
+`onAddWorkspace`/`onDeleteWorkspace` to the same functional
+`setWorkspaces(prev => ...)` form already used everywhere else (append/
+filter against `prev`, not against a stale snapshot). Do not implement
+that fix until the log timeline actually proves it. Release stays
+frozen at v1.1.0 either way, per instruction.
+
+**Update, same session:** added an automatic (not manual-eyeballing)
+clobber check to `setWorkspacesLogged` - for the two REPLACE call
+sites, every carried-over Workspace in `result` is compared
+field-by-field against its live entry in `prev`; any difference logs
+`[WS-AUDIT][CLOBBER CONFIRMED]` with the exact Workspace id and fields.
+Hypothesis judged strong enough to proceed. Applied the minimal fix:
+`onAddWorkspace` now computes only `created` (independent of the
+Workspace list) and appends it via `setWorkspacesLogged("addWorkspace",
+prev => [...prev, created])`; `onDeleteWorkspace` now removes via
+`setWorkspacesLogged("deleteWorkspace", prev => deleteWorkspace(prev,
+id))`. The `currentWorkspaceId` fallback-tab selection in
+`onDeleteWorkspace` is untouched (still off `workspacesRef.current`) -
+it was never part of the clobber (it never mutates Workspace data).
+Every `setWorkspaces` call in `Workspace.tsx` is now functional; no
+REPLACE call sites remain. `npx tsc --noEmit`/`npx eslint` clean;
+`npm run dev` boots with no startup crash. **Not yet done: the live
+20x repro** - needs a real ChatGPT session, which requires the user's
+participation. No commit, no build, no release per instruction.
+
+## Session 23 (2026-08-05): Version 1.1.1 - live-verified fix, official production release
+
+User ran the live 20x repro (Workspace A generate / Workspace B
+create+upload mid-generation) against a real ChatGPT session -
+confirmed passing. This session's own tooling can't drive that repro
+directly (no ChatGPT login), so this result is taken on the user's
+report rather than independently re-observed.
+
+**Gated WS-AUDIT diagnostics to dev-only**, per instruction to keep
+the system in the codebase but produce no output in a packaged build:
+- `src/utils/workspaceLogger.ts`: added a module-level
+  `DIAGNOSTICS_ENABLED = import.meta.env.DEV` check, early-returned
+  from inside `logWorkspaceEvent`. Also added `logWorkspaceStateDiff`/
+  `logClobberConfirmed` (same gate) so `Workspace.tsx`'s
+  `setWorkspacesLogged` no longer calls `console.*` directly - every
+  WS-AUDIT log now funnels through this one file's gate. Vite replaces
+  `import.meta.env.DEV` with a literal `false` in `npm run build`, so
+  Rollup dead-code-eliminates these calls entirely from the packaged
+  bundle (not just silences them at runtime).
+- `electron/main.ts`: `logMainEvent` gated on `!app.isPackaged` (not
+  the existing `VITE_DEV_SERVER_URL` check, since that's only set by
+  `npm run dev` - `app.isPackaged` is what's actually false/true for
+  both `Setup.exe` and `Portable.exe` regardless of how they're
+  launched).
+
+`npx tsc --noEmit`/`npx eslint . --ext ts,tsx` clean after gating.
+
+**Pre-release verification** (parts verifiable without a live ChatGPT
+session, checked directly against source/config rather than assumed
+unchanged from v1.1.0):
+- ✓ `src/data/prompts.json` still `[]` (empty Prompt Library default).
+- ✓ `WorkTypeStore` still starts empty with no localStorage key -
+  nothing seeds it.
+- ✓ `build/icon.ico` (installer) and `public/icon.ico` (runtime
+  BrowserWindow) both present; `package.json`'s `build.win.icon`
+  points at `build/icon.ico`.
+- ✓ `package.json`'s `nsis` config already has
+  `createDesktopShortcut`/`createStartMenuShortcut: true` and
+  `artifactName` templates using `${version}`.
+- Workspace-isolation/multi-generation/upload-never-interrupts/
+  auto-save items: per the user's live-test report above, not
+  independently re-verified by this session.
+
+**Version bump:** `package.json` 1.1.0 -> 1.1.1. Updated
+`CHANGELOG.md` (new 1.1.1 entry), `README.md` (Release section),
+`ROADMAP.md` (1.1.1 now RELEASED, 1.1.0's "known issue" note points to
+it as fixed).

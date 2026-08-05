@@ -40,6 +40,12 @@ export interface BrowserHandle {
   /** This Workspace's webview's current URL - used to capture its own
    *  conversation URL right after ChatGPT creates it. */
   getCurrentUrl(): string;
+
+  /** This Workspace's own webview guest's webContents id (undefined if
+   *  the webview doesn't exist) - included in diagnostic logs so a
+   *  Generate/Upload/Download event can be tied back to the exact guest
+   *  process that triggered it (see src/utils/workspaceLogger.ts). */
+  getWebContentsId(): number | undefined;
 }
 
 export interface BrowserPoolHandle {
@@ -135,6 +141,10 @@ const BrowserPool = forwardRef<BrowserPoolHandle, BrowserPoolProps>(
 
         getCurrentUrl() {
           return getEl()?.getURL() ?? "";
+        },
+
+        getWebContentsId() {
+          return getEl()?.getWebContentsId();
         },
 
       };

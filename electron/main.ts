@@ -124,6 +124,36 @@ const pendingDownloads = new Map<string, PendingDownload>();
 // Workspaces are generating at the same moment.
 const webviewOwners = new Map<number, string>();
 
+// TEMPORARY (V1.1 Workspace-isolation audit - see WORKLOG): logs every
+// main-process event that touches the shared pendingDownloads/
+// webviewOwners maps, tagged with the resolved Workspace ID (or "unknown"
+// if webContents.id has no owner), the triggering webContents.id, and a
+// timestamp, so a live repro's terminal output can be read back as an
+// exact per-Workspace event timeline. Remove once the isolation bug is
+// found and verified fixed.
+//
+// app.isPackaged (not the VITE_DEV_SERVER_URL check used elsewhere in
+// this file for the load-URL-vs-load-file branch) is the right gate
+// here specifically because it's true for BOTH `Setup.exe` and
+// `Portable.exe` output, whereas VITE_DEV_SERVER_URL is only ever set
+// by the `npm run dev` script - this must never log in a packaged
+// build regardless of how it's launched.
+const DIAGNOSTICS_ENABLED = !app.isPackaged;
+
+function logMainEvent(
+  workspaceId: string | undefined,
+  event: string,
+  details?: Record<string, unknown>
+): void {
+  if (!DIAGNOSTICS_ENABLED)
+    return;
+
+  console.log(
+    `[WS-AUDIT][main] ${new Date().toISOString()} | workspace=${workspaceId ?? "unknown"} | event=${event}`,
+    details ?? {}
+  );
+}
+
 /**
  * Strips illegal Windows filename characters and surrounding
  * whitespace. Used on the Prefix, the Work Type Prefix, and the Prompt
@@ -244,6 +274,12 @@ app.whenReady().then(() => {
 
     const pending = workspaceId ? pendingDownloads.get(workspaceId) : undefined;
 
+    logMainEvent(workspaceId, "Download Started", {
+      webContentsId: webContents.id,
+      pendingArmedFor: pending?.id ?? null,
+      pendingBaseName: pending?.baseName ?? null,
+    });
+
     if (workspaceId) {
       pendingDownloads.delete(workspaceId);
     }
@@ -258,7 +294,18 @@ app.whenReady().then(() => {
 
     item.setSavePath(filePath);
 
+    logMainEvent(workspaceId, "Save Started", {
+      webContentsId: webContents.id,
+      filePath,
+    });
+
     item.once("done", (_, state) => {
+      logMainEvent(workspaceId, "Save Completed", {
+        webContentsId: webContents.id,
+        filePath,
+        state,
+      });
+
       win?.webContents.send("image:downloaded", {
         id: pending?.id ?? null,
         filePath: state === "completed" ? filePath : null
@@ -287,6 +334,8 @@ app.whenReady().then(() => {
     (event, id: string, baseName: string, workTypePrefix: string) => {
       pendingDownloads.set(id, { id, baseName, workTypePrefix });
 
+      logMainEvent(id, "Download Armed", { baseName, workTypePrefix });
+
       event.returnValue = true;
     }
   );
@@ -299,6 +348,8 @@ app.whenReady().then(() => {
     "browser:registerWebview",
     (_event, workspaceId: string, webContentsId: number) => {
       webviewOwners.set(webContentsId, workspaceId);
+
+      logMainEvent(workspaceId, "Webview Registered", { webContentsId });
     }
   );
 
@@ -308,6 +359,8 @@ app.whenReady().then(() => {
       for (const [webContentsId, ownerId] of webviewOwners) {
         if (ownerId === workspaceId) {
           webviewOwners.delete(webContentsId);
+
+          logMainEvent(workspaceId, "Webview Unregistered", { webContentsId });
         }
       }
 
