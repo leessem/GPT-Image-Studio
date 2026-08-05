@@ -2,6 +2,14 @@
 
 All notable changes to GPT Image Studio are documented in this file.
 
+## Version 1.1.2 (2026-08-05)
+
+- Fixed production-only Workspace image detection race condition.
+- Fixed false image detection caused by uploaded image thumbnails.
+- Improved production stability.
+- Improved multi-workspace reliability.
+- Finalized production release.
+
 ## Version 1.1.1 (2026-08-05)
 
 - Fixed the cross-Workspace Error bug that survived v1.1.0's download-

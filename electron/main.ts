@@ -22,12 +22,23 @@ app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("disable-gpu-compositing");
 
+// TEMPORARY (V1.1.1 dev-vs-production divergence investigation - see
+// WORKLOG): flip to true ONLY to rebuild the one-off "GPT Image Studio
+// Debug.exe" diagnostic artifact - forces DevTools + WS-AUDIT logging
+// on unconditionally, so it behaves like the real packaged app but is
+// fully instrumented out of the box (no env vars to set, no terminal
+// needed - just run the exe). Left false for every normal build (dev
+// or the real packaged release, both unaffected by this flag either
+// way - dev already forces its own diagnostics on via import.meta.env.
+// DEV, and a real release must never ship with this true).
+const FORCE_DEBUG_BUILD = false;
+
 // Single flag controlling DevTools availability for both the main window
 // and the ChatGPT <webview>. DevTools are never opened automatically
 // regardless of this flag - when true it only makes manual opening
 // (e.g. the default F12 / Ctrl+Shift+I shortcut) possible; when false
 // (the default) DevTools cannot be opened at all.
-const DEVTOOLS_ENABLED = process.env.DEVTOOLS_ENABLED === "true";
+const DEVTOOLS_ENABLED = process.env.DEVTOOLS_ENABLED === "true" || FORCE_DEBUG_BUILD;
 
 export const VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
 export const MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
@@ -138,7 +149,43 @@ const webviewOwners = new Map<number, string>();
 // `Portable.exe` output, whereas VITE_DEV_SERVER_URL is only ever set
 // by the `npm run dev` script - this must never log in a packaged
 // build regardless of how it's launched.
-const DIAGNOSTICS_ENABLED = !app.isPackaged;
+//
+// WS_AUDIT_FORCE is the escape hatch for force-enabling this in an
+// already-packaged build (e.g. to investigate a production-only
+// report) without a dev rebuild - see preload.ts for the matching
+// renderer-side override. Default (env var unset) behavior is
+// unchanged: packaged builds stay silent. FORCE_DEBUG_BUILD is the
+// unconditional override for the one-off debug artifact (see above).
+const DIAGNOSTICS_ENABLED = !app.isPackaged || process.env.WS_AUDIT_FORCE === "true" || FORCE_DEBUG_BUILD;
+
+// A packaged Windows build runs under the GUI subsystem with no
+// attached console - console.log from the main process has nowhere to
+// go and is silently lost (confirmed live: redirecting stdout/stderr
+// of a launched Setup/Portable .exe captures nothing, even with
+// WS_AUDIT_FORCE=true). This is a logging-capture gap, unrelated to
+// the Workspace bug itself - write to a file as well, so logs survive
+// application exit and don't require DevTools to be open at all.
+//
+// PORTABLE_EXECUTABLE_DIR is set by electron-builder's portable
+// launcher to the folder the actual .exe lives in (NOT the ephemeral
+// temp dir it self-extracts to at runtime) - using it is what makes
+// "logs/" show up next to the exe for a Portable build the same way
+// it would for an installed one (app.getPath("exe")'s directory, which
+// is writable under this app's per-user NSIS install).
+const logsDir = process.env.PORTABLE_EXECUTABLE_DIR
+  ? path.join(process.env.PORTABLE_EXECUTABLE_DIR, "logs")
+  : path.join(path.dirname(app.getPath("exe")), "logs");
+
+const wsAuditLogPath = path.join(logsDir, "ws-audit.log");
+
+if (DIAGNOSTICS_ENABLED) {
+  try {
+    fs.mkdirSync(logsDir, { recursive: true });
+  }
+  catch {
+    // best-effort - never let diagnostic logging crash the app
+  }
+}
 
 function logMainEvent(
   workspaceId: string | undefined,
@@ -148,10 +195,16 @@ function logMainEvent(
   if (!DIAGNOSTICS_ENABLED)
     return;
 
-  console.log(
-    `[WS-AUDIT][main] ${new Date().toISOString()} | workspace=${workspaceId ?? "unknown"} | event=${event}`,
-    details ?? {}
-  );
+  const line = `[WS-AUDIT][main] ${new Date().toISOString()} | workspace=${workspaceId ?? "unknown"} | event=${event} ${JSON.stringify(details ?? {})}`;
+
+  console.log(line);
+
+  try {
+    fs.appendFileSync(wsAuditLogPath, line + "\n", "utf-8");
+  }
+  catch {
+    // best-effort - never let diagnostic logging crash the app
+  }
 }
 
 /**
@@ -367,6 +420,29 @@ app.whenReady().then(() => {
       pendingDownloads.delete(workspaceId);
     }
   );
+
+  // Forwards a renderer-side WS-AUDIT log line (already formatted by
+  // src/utils/workspaceLogger.ts) into the SAME logs/ws-audit.log file
+  // main-process events write to, so the two interleave into one
+  // chronological timeline instead of two files to cross-reference by
+  // hand - and so capturing renderer events never depends on DevTools
+  // being open. event.sender.id is the IPC Sender ID (the renderer
+  // webContents that sent this - the main window itself, not a
+  // <webview> guest, since workspaceLogger.ts runs in the app's own
+  // renderer, not inside a Workspace's ChatGPT webview).
+  ipcMain.on("ws-audit:log", (event, line: string) => {
+    if (!DIAGNOSTICS_ENABLED)
+      return;
+
+    console.log(line);
+
+    try {
+      fs.appendFileSync(wsAuditLogPath, `${line} | ipcSenderId=${event.sender.id}\n`, "utf-8");
+    }
+    catch {
+      // best-effort - never let diagnostic logging crash the app
+    }
+  });
 
   // Verifies the downloaded file actually exists on disk (a non-zero
   // size, not just the will-download "completed" event). Polls for a

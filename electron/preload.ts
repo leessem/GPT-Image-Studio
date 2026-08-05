@@ -3,6 +3,27 @@
 
 import { ipcRenderer, contextBridge } from "electron";
 
+// TEMPORARY (V1.1.1 dev-vs-production divergence investigation - see
+// WORKLOG): WS-AUDIT diagnostic logging is dev-only by default
+// (src/utils/workspaceLogger.ts checks import.meta.env.DEV, which Vite
+// bakes to a literal `false` in a production build - the logging calls
+// don't even exist in the shipped bundle). This env var is the escape
+// hatch for force-enabling it in an already-packaged build without a
+// dev rebuild, since the renderer has no other way to see
+// process.env at runtime. Remove alongside the rest of WS-AUDIT once
+// the isolation bug is fully closed.
+//
+// FORCE_DEBUG_BUILD mirrors electron/main.ts's own flag of the same
+// name (duplicated here, not imported, since main.ts and preload.ts
+// are separate Vite entry points) - flip both to true together only to
+// rebuild the one-off "GPT Image Studio Debug.exe" artifact.
+const FORCE_DEBUG_BUILD = false;
+
+contextBridge.exposeInMainWorld(
+  "__WS_AUDIT_FORCE__",
+  process.env.WS_AUDIT_FORCE === "true" || FORCE_DEBUG_BUILD
+);
+
 contextBridge.exposeInMainWorld("ipcRenderer", {
   on(...args: Parameters<typeof ipcRenderer.on>) {
     const [channel, listener] = args;
@@ -135,6 +156,8 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
 
 declare global {
   interface Window {
+    __WS_AUDIT_FORCE__: boolean;
+
     ipcRenderer: {
       on: typeof ipcRenderer.on;
       off: typeof ipcRenderer.off;

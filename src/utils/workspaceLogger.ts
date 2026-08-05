@@ -23,11 +23,47 @@
 import { Workspace } from "../types/Workspace";
 
 // Vite replaces `import.meta.env.DEV` with a literal `false` in a
-// production build (`npm run build`), so every WS-AUDIT call below is
-// dead code under that branch and gets stripped by Rollup's minifier -
-// this isn't just "quiet in prod," the console.* calls themselves are
-// not present in the packaged app at all.
-const DIAGNOSTICS_ENABLED = import.meta.env.DEV;
+// production build (`npm run build`), so by default every WS-AUDIT
+// call below is dead code under that branch and gets stripped by
+// Rollup's minifier - not just quiet in prod, the console.* calls
+// themselves are absent from the packaged app entirely.
+//
+// `window.__WS_AUDIT_FORCE__` (set by preload.ts from the
+// WS_AUDIT_FORCE env var) is the escape hatch for force-enabling this
+// in an already-packaged build without a dev rebuild - see preload.ts
+// for why the renderer needs main-process help to see this at all.
+// Default (env var unset) behavior is unchanged: dev-only.
+const DIAGNOSTICS_ENABLED = import.meta.env.DEV || window.__WS_AUDIT_FORCE__ === true;
+
+/**
+ * Single emission point for every WS-AUDIT log line: prints to the
+ * DevTools console (as before) AND forwards the same line to the main
+ * process over IPC, which appends it into the SAME logs/ws-audit.log
+ * file main-process events write to (see electron/main.ts's
+ * "ws-audit:log" handler) - so renderer + main events interleave into
+ * one chronological timeline, and capturing them never depends on
+ * DevTools being open or even launched.
+ */
+function emit(line: string, details: unknown, isError: boolean): void {
+
+    if (!DIAGNOSTICS_ENABLED)
+        return;
+
+    if (isError) {
+        console.error(line, details);
+    }
+    else {
+        console.log(line, details);
+    }
+
+    try {
+        window.ipcRenderer.send("ws-audit:log", `${line} ${JSON.stringify(details)}`);
+    }
+    catch {
+        // best-effort - never let diagnostic logging crash the renderer
+    }
+
+}
 
 export function logWorkspaceEvent(
 
@@ -39,21 +75,16 @@ export function logWorkspaceEvent(
 
 ): void {
 
-    if (!DIAGNOSTICS_ENABLED)
-        return;
-
-    console.log(
-
+    emit(
         `[WS-AUDIT] ${new Date().toISOString()} | workspace=${workspaceId} | event=${event}`,
-
-        details ?? {}
-
+        details ?? {},
+        false
     );
 
 }
 
 /**
- * Dev-only equivalent of setWorkspacesLogged's per-call state-diff log
+ * Equivalent of setWorkspacesLogged's per-call state-diff log
  * (Workspace.tsx) - kept here so the DIAGNOSTICS_ENABLED gate lives in
  * exactly one place.
  */
@@ -67,21 +98,16 @@ export function logWorkspaceStateDiff(
 
 ): void {
 
-    if (!DIAGNOSTICS_ENABLED)
-        return;
-
-    console.log(
-
+    emit(
         `[WS-AUDIT][setWorkspaces] ${new Date().toISOString()} | origin=${origin} | kind=${kind}`,
-
-        payload
-
+        payload,
+        false
     );
 
 }
 
 /**
- * Dev-only equivalent of setWorkspacesLogged's clobber-detection log
+ * Equivalent of setWorkspacesLogged's clobber-detection log
  * (Workspace.tsx) - see logWorkspaceStateDiff above for why this lives
  * here instead of at the call site.
  */
@@ -95,15 +121,10 @@ export function logClobberConfirmed(
 
 ): void {
 
-    if (!DIAGNOSTICS_ENABLED)
-        return;
-
-    console.error(
-
+    emit(
         `[WS-AUDIT][CLOBBER CONFIRMED] ${new Date().toISOString()} | origin=${origin} | workspace=${workspaceId} | a REPLACE call just overwrote live state with a stale snapshot`,
-
-        { staleFields }
-
+        { staleFields },
+        true
     );
 
 }

@@ -1,139 +1,158 @@
-import { app as r, session as S, ipcMain as l, shell as F, BrowserWindow as E, dialog as y } from "electron";
-import { fileURLToPath as N } from "node:url";
-import d from "node:path";
-import c from "node:fs";
-import { execSync as j } from "node:child_process";
-const I = d.dirname(N(import.meta.url));
-process.env.APP_ROOT = d.join(I, "..");
-const R = r.requestSingleInstanceLock();
-R || r.quit();
-r.disableHardwareAcceleration();
-r.commandLine.appendSwitch("disable-gpu");
-r.commandLine.appendSwitch("disable-gpu-compositing");
-const T = process.env.DEVTOOLS_ENABLED === "true", b = process.env.VITE_DEV_SERVER_URL, z = d.join(process.env.APP_ROOT, "dist-electron"), x = d.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = b ? d.join(process.env.APP_ROOT, "public") : x;
+import { app as a, session as S, ipcMain as l, shell as U, BrowserWindow as T, dialog as y } from "electron";
+import { fileURLToPath as V } from "node:url";
+import i from "node:path";
+import r from "node:fs";
+import { execSync as $ } from "node:child_process";
+const A = i.dirname(V(import.meta.url));
+process.env.APP_ROOT = i.join(A, "..");
+const B = a.requestSingleInstanceLock();
+B || a.quit();
+a.disableHardwareAcceleration();
+a.commandLine.appendSwitch("disable-gpu");
+a.commandLine.appendSwitch("disable-gpu-compositing");
+const L = !1, b = process.env.DEVTOOLS_ENABLED === "true" || L, E = process.env.VITE_DEV_SERVER_URL, G = i.join(process.env.APP_ROOT, "dist-electron"), F = i.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = E ? i.join(process.env.APP_ROOT, "public") : F;
 let o = null;
-const A = d.join(r.getPath("userData"), "settings.json");
-function V() {
+const R = i.join(a.getPath("userData"), "settings.json");
+function C() {
   try {
-    const a = c.readFileSync(A, "utf-8"), t = JSON.parse(a);
+    const d = r.readFileSync(R, "utf-8"), t = JSON.parse(d);
     if (t && typeof t == "object")
       return t;
   } catch {
   }
   return {};
 }
-function D(a) {
-  c.writeFileSync(
-    A,
-    JSON.stringify(a, null, 2),
+function _(d) {
+  r.writeFileSync(
+    R,
+    JSON.stringify(d, null, 2),
     "utf-8"
   );
 }
-const w = V();
-let f = w.downloadFolder ?? d.join(r.getPath("downloads"), "GPT Image Studio"), O = w.filenamePrefix ?? "★";
-const P = /* @__PURE__ */ new Map(), v = /* @__PURE__ */ new Map(), U = !r.isPackaged;
-function g(a, t, e) {
-  U && console.log(
-    `[WS-AUDIT][main] ${(/* @__PURE__ */ new Date()).toISOString()} | workspace=${a ?? "unknown"} | event=${t}`,
-    e ?? {}
-  );
+const p = C();
+let f = p.downloadFolder ?? i.join(a.getPath("downloads"), "GPT Image Studio"), O = p.filenamePrefix ?? "★";
+const P = /* @__PURE__ */ new Map(), v = /* @__PURE__ */ new Map(), I = !a.isPackaged || process.env.WS_AUDIT_FORCE === "true" || L, x = process.env.PORTABLE_EXECUTABLE_DIR ? i.join(process.env.PORTABLE_EXECUTABLE_DIR, "logs") : i.join(i.dirname(a.getPath("exe")), "logs"), j = i.join(x, "ws-audit.log");
+if (I)
+  try {
+    r.mkdirSync(x, { recursive: !0 });
+  } catch {
+  }
+function m(d, t, e) {
+  if (!I)
+    return;
+  const n = `[WS-AUDIT][main] ${(/* @__PURE__ */ new Date()).toISOString()} | workspace=${d ?? "unknown"} | event=${t} ${JSON.stringify(e ?? {})}`;
+  console.log(n);
+  try {
+    r.appendFileSync(j, n + `
+`, "utf-8");
+  } catch {
+  }
 }
-function _(a) {
-  return a.replace(/[\\/:*?"<>|]/g, "_").trim();
+function D(d) {
+  return d.replace(/[\\/:*?"<>|]/g, "_").trim();
 }
-function W(a, t, e) {
-  const n = _(t) || "Untitled", i = _(O), s = _(e), u = `${i}${s}${n}`, p = `${u}.png`;
-  if (!c.existsSync(d.join(a, p)))
-    return p;
-  let h = 2, m = `${u}${h}.png`;
-  for (; c.existsSync(d.join(a, m)); )
-    h++, m = `${u}${h}.png`;
-  return m;
+function W(d, t, e) {
+  const n = D(t) || "Untitled", c = D(O), s = D(e), u = `${c}${s}${n}`, w = `${u}.png`;
+  if (!r.existsSync(i.join(d, w)))
+    return w;
+  let h = 2, g = `${u}${h}.png`;
+  for (; r.existsSync(i.join(d, g)); )
+    h++, g = `${u}${h}.png`;
+  return g;
 }
-r.on("second-instance", () => {
+a.on("second-instance", () => {
   o && (o.isMinimized() && o.restore(), o.focus());
 });
-r.on("web-contents-created", (a, t) => {
+a.on("web-contents-created", (d, t) => {
   t.on("will-attach-webview", (e, n) => {
-    n.devTools = T;
+    n.devTools = b;
   });
 });
-function L() {
-  o = new E({
+function N() {
+  o = new T({
     width: 1800,
     height: 1100,
     minWidth: 1400,
     minHeight: 900,
     title: "GPT Image Studio",
-    icon: d.join(process.env.VITE_PUBLIC, "icon.ico"),
+    icon: i.join(process.env.VITE_PUBLIC, "icon.ico"),
     autoHideMenuBar: !0,
     webPreferences: {
-      preload: d.join(I, "preload.mjs"),
+      preload: i.join(A, "preload.mjs"),
       contextIsolation: !0,
       nodeIntegration: !1,
       webviewTag: !0,
       sandbox: !0,
-      devTools: T
+      devTools: b
     }
-  }), b ? o.loadURL(b) : o.loadFile(d.join(x, "index.html")), o.webContents.setWindowOpenHandler(() => ({
+  }), E ? o.loadURL(E) : o.loadFile(i.join(F, "index.html")), o.webContents.setWindowOpenHandler(() => ({
     action: "deny"
   }));
 }
-r.whenReady().then(() => {
+a.whenReady().then(() => {
   S.defaultSession.setUserAgent(
     S.defaultSession.getUserAgent()
-  ), c.existsSync(f) || c.mkdirSync(f, { recursive: !0 });
-  const a = (t, e, n) => {
-    const i = v.get(n.id), s = i ? P.get(i) : void 0;
-    g(i, "Download Started", {
+  ), r.existsSync(f) || r.mkdirSync(f, { recursive: !0 });
+  const d = (t, e, n) => {
+    const c = v.get(n.id), s = c ? P.get(c) : void 0;
+    m(c, "Download Started", {
       webContentsId: n.id,
       pendingArmedFor: (s == null ? void 0 : s.id) ?? null,
       pendingBaseName: (s == null ? void 0 : s.baseName) ?? null
-    }), i && P.delete(i);
+    }), c && P.delete(c);
     const u = W(
       f,
       (s == null ? void 0 : s.baseName) ?? "Untitled",
       (s == null ? void 0 : s.workTypePrefix) ?? ""
-    ), p = d.join(f, u);
-    e.setSavePath(p), g(i, "Save Started", {
+    ), w = i.join(f, u);
+    e.setSavePath(w), m(c, "Save Started", {
       webContentsId: n.id,
-      filePath: p
-    }), e.once("done", (h, m) => {
-      g(i, "Save Completed", {
+      filePath: w
+    }), e.once("done", (h, g) => {
+      m(c, "Save Completed", {
         webContentsId: n.id,
-        filePath: p,
-        state: m
+        filePath: w,
+        state: g
       }), o == null || o.webContents.send("image:downloaded", {
         id: (s == null ? void 0 : s.id) ?? null,
-        filePath: m === "completed" ? p : null
+        filePath: g === "completed" ? w : null
       });
     });
   };
-  S.defaultSession.on("will-download", a), S.fromPartition("persist:gpt-image-studio").on("will-download", a), l.on(
+  S.defaultSession.on("will-download", d), S.fromPartition("persist:gpt-image-studio").on("will-download", d), l.on(
     "image:armDownload",
-    (t, e, n, i) => {
-      P.set(e, { id: e, baseName: n, workTypePrefix: i }), g(e, "Download Armed", { baseName: n, workTypePrefix: i }), t.returnValue = !0;
+    (t, e, n, c) => {
+      P.set(e, { id: e, baseName: n, workTypePrefix: c }), m(e, "Download Armed", { baseName: n, workTypePrefix: c }), t.returnValue = !0;
     }
   ), l.on(
     "browser:registerWebview",
     (t, e, n) => {
-      v.set(n, e), g(e, "Webview Registered", { webContentsId: n });
+      v.set(n, e), m(e, "Webview Registered", { webContentsId: n });
     }
   ), l.on(
     "browser:unregisterWebview",
     (t, e) => {
-      for (const [n, i] of v)
-        i === e && (v.delete(n), g(e, "Webview Unregistered", { webContentsId: n }));
+      for (const [n, c] of v)
+        c === e && (v.delete(n), m(e, "Webview Unregistered", { webContentsId: n }));
       P.delete(e);
     }
-  ), l.handle(
+  ), l.on("ws-audit:log", (t, e) => {
+    if (I) {
+      console.log(e);
+      try {
+        r.appendFileSync(j, `${e} | ipcSenderId=${t.sender.id}
+`, "utf-8");
+      } catch {
+      }
+    }
+  }), l.handle(
     "image:verifyFile",
     async (t, e) => {
       const s = Date.now();
       for (; Date.now() - s <= 3e3; ) {
         try {
-          const u = c.statSync(e);
+          const u = r.statSync(e);
           if (u.size > 0)
             return { exists: !0, size: u.size };
         } catch {
@@ -151,18 +170,18 @@ r.whenReady().then(() => {
     if (t.canceled || !t.filePaths[0])
       return { success: !1, canceled: !0 };
     const e = t.filePaths[0];
-    return c.existsSync(e) || c.mkdirSync(e, { recursive: !0 }), f = e, w.downloadFolder = e, D(w), { success: !0, folder: e };
-  }), l.handle("settings:getFilenamePrefix", () => O), l.handle("settings:setFilenamePrefix", (t, e) => (O = e, w.filenamePrefix = e, D(w), { success: !0 })), l.handle("settings:openDownloadFolder", async () => {
-    c.existsSync(f) || c.mkdirSync(f, { recursive: !0 });
-    const t = await F.openPath(f);
+    return r.existsSync(e) || r.mkdirSync(e, { recursive: !0 }), f = e, p.downloadFolder = e, _(p), { success: !0, folder: e };
+  }), l.handle("settings:getFilenamePrefix", () => O), l.handle("settings:setFilenamePrefix", (t, e) => (O = e, p.filenamePrefix = e, _(p), { success: !0 })), l.handle("settings:openDownloadFolder", async () => {
+    r.existsSync(f) || r.mkdirSync(f, { recursive: !0 });
+    const t = await U.openPath(f);
     return { success: t === "", error: t || null };
   }), l.handle(
     "settings:getFirstLaunchNoticeShown",
-    () => !!w.firstLaunchNoticeShown
-  ), l.handle("settings:markFirstLaunchNoticeShown", () => (w.firstLaunchNoticeShown = !0, D(w), { success: !0 })), l.handle("settings:getAppInfo", () => {
+    () => !!p.firstLaunchNoticeShown
+  ), l.handle("settings:markFirstLaunchNoticeShown", () => (p.firstLaunchNoticeShown = !0, _(p), { success: !0 })), l.handle("settings:getAppInfo", () => {
     let t = null;
     try {
-      t = j("git rev-parse --short HEAD", {
+      t = $("git rev-parse --short HEAD", {
         cwd: process.env.APP_ROOT,
         stdio: ["ignore", "pipe", "ignore"]
       }).toString().trim();
@@ -170,7 +189,7 @@ r.whenReady().then(() => {
       t = null;
     }
     return {
-      appVersion: r.getVersion(),
+      appVersion: a.getVersion(),
       electronVersion: process.versions.electron,
       nodeVersion: process.versions.node,
       gitCommit: t
@@ -184,7 +203,7 @@ r.whenReady().then(() => {
         defaultPath: "prompt-library.json",
         filters: [{ name: "JSON", extensions: ["json"] }]
       });
-      return n.canceled || !n.filePath ? { success: !1, canceled: !0 } : (c.writeFileSync(n.filePath, e, "utf-8"), { success: !0, filePath: n.filePath });
+      return n.canceled || !n.filePath ? { success: !1, canceled: !0 } : (r.writeFileSync(n.filePath, e, "utf-8"), { success: !0, filePath: n.filePath });
     }
   ), l.handle("promptLibrary:import", async () => {
     if (!o)
@@ -196,7 +215,7 @@ r.whenReady().then(() => {
     if (t.canceled || !t.filePaths[0])
       return { success: !1, canceled: !0 };
     try {
-      const e = c.readFileSync(t.filePaths[0], "utf-8");
+      const e = r.readFileSync(t.filePaths[0], "utf-8");
       return { success: !0, data: JSON.parse(e) };
     } catch {
       return {
@@ -204,16 +223,16 @@ r.whenReady().then(() => {
         error: "Could not read or parse the selected file."
       };
     }
-  }), L();
+  }), N();
 });
-r.on("activate", () => {
-  E.getAllWindows().length === 0 && L();
+a.on("activate", () => {
+  T.getAllWindows().length === 0 && N();
 });
-r.on("window-all-closed", () => {
-  process.platform !== "darwin" && r.quit();
+a.on("window-all-closed", () => {
+  process.platform !== "darwin" && a.quit();
 });
 export {
-  z as MAIN_DIST,
-  x as RENDERER_DIST,
-  b as VITE_DEV_SERVER_URL
+  G as MAIN_DIST,
+  F as RENDERER_DIST,
+  E as VITE_DEV_SERVER_URL
 };

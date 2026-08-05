@@ -254,13 +254,29 @@ ${buildInsertPromptTextSnippet(prompt)}
 
 const GENERATED_IMAGE_SELECTOR = 'img[src*="/backend-api/estuary/content"]';
 
+// Scoped the same way buildOpenImageViewerScript() below already scopes
+// its own search (see that function's comment): GENERATED_IMAGE_SELECTOR
+// alone also matches a Workspace's own uploaded image (and unrelated UI
+// chrome), so counting it unscoped let a re-rendered/duplicated
+// uploaded-image thumbnail be mistaken for a newly generated one -
+// proven live via a captured ws-audit.log: a Workspace's "image
+// generation" step resolved in ~1.7s (far too fast for a real
+// generation), then immediately failed to find a generated-image
+// container, because what it "detected" was its own uploaded photo, not
+// a generated one. ChatGPT only ever renders actual generated images
+// inside an "imagegen-image" container (confirmed live, same as
+// buildOpenImageViewerScript's own comment below), so scoping to it here
+// too makes that false match structurally impossible.
+const GENERATED_IMAGE_IN_CONTAINER_SELECTOR =
+  '[class*="imagegen-image"] img[src*="/backend-api/estuary/content"]';
+
 export function buildWaitImageScript() {
   return `
 (() => {
 
   return new Promise((resolve) => {
 
-    const selector = ${JSON.stringify(GENERATED_IMAGE_SELECTOR)};
+    const selector = ${JSON.stringify(GENERATED_IMAGE_IN_CONTAINER_SELECTOR)};
 
     const startCount = document.querySelectorAll(selector).length;
 

@@ -1,6 +1,43 @@
 # ROADMAP
 
+## Version 1.1.2 - RELEASED (2026-08-05)
+
+P0 fix: the cross-Workspace Error bug that survived v1.1.1's React
+state fix (see WORKLOG Session 23-24) - proven, via a purpose-built
+always-on-diagnostics "GPT Image Studio Debug.exe" artifact producing a
+persistent `logs/ws-audit.log`, to NOT be a React/Workspace-state
+clobber at all (mechanically confirmed: zero `CLOBBER CONFIRMED`
+events, every `setWorkspaces` diff scoped to exactly the Workspace it
+targeted). The real defect: `buildWaitImageScript()`
+(`ChatGPT.ts`) counted `img[src*="/backend-api/estuary/content"]`
+document-wide with no scoping, and that same URL pattern also matches
+a Workspace's own uploaded image thumbnail - a re-rendered/duplicated
+uploaded-image `<img>` could be mistaken for a newly generated one,
+resolving in ~1.7s (impossibly fast for real generation) and then
+failing immediately after in `buildOpenImageViewerScript()` with "no
+generated-image container found":
+
+- Fixed `buildWaitImageScript()` to count only images inside a
+  `[class*="imagegen-image"]` container - the same scoping
+  `buildOpenImageViewerScript()` already used - making the false match
+  structurally impossible. No Workspace-management, IPC, or React
+  state code changed.
+- Live-verified via the Debug build (20x repro), then confirmed the
+  real packaged release matches.
+- WS-AUDIT diagnostic framework kept in the codebase (dev-only by
+  default, plus a `WS_AUDIT_FORCE` env-var escape hatch and a
+  `logs/ws-audit.log` persistent log for future investigation without
+  needing DevTools) - inactive in this release's packaged build.
+- Official production installer (`GPT Image Studio v1.1.2 Setup.exe` /
+  `Portable.exe`).
+
 ## Version 1.1.1 - RELEASED (2026-08-05)
+
+**Known issue, fixed in 1.1.2 above:** the cross-Workspace Error bug
+this release intended to fix was still reproducible in the packaged
+build specifically (passed in `npm run dev`) - root cause turned out to
+be unrelated to the React state fix this release shipped; see WORKLOG
+Session 23-24 and the 1.1.2 entry above.
 
 P0 fix: the cross-Workspace Error bug that survived v1.1.0 (see WORKLOG
 Session 22) - creating/deleting a Workspace while another Workspace was
@@ -24,10 +61,12 @@ a live repro after:
 
 ## Version 1.1.0 - RELEASED (2026-08-05)
 
-**Known issue, fixed in 1.1.1 above:** the cross-Workspace Error bug
-this release intended to fix was still reproducible under a different
-trigger (creating a new Workspace mid-generation, not just switching to
-one) - see WORKLOG Session 22.
+**Known issue, actually fixed in 1.1.2 above:** the cross-Workspace
+Error bug this release intended to fix was still reproducible under a
+different trigger (creating a new Workspace mid-generation, not just
+switching to one) - see WORKLOG Session 22. 1.1.1 fixed a real but
+different bug (a React state clobber) that turned out not to be this
+one's root cause; the actual fix landed in 1.1.2.
 
 Maintenance release - no new features. Fixes the cross-Workspace
 download attribution race reported from a second PC (see WORKLOG

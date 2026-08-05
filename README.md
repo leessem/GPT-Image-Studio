@@ -94,12 +94,12 @@ requires creating symbolic links) - not required for local development
 or for verifying the app itself works, only for producing the final
 `.exe` installer/portable build.
 
-## Release (Version 1.1.1)
+## Release (Version 1.1.2)
 
 `npm run build` produces, in `Release/`:
-- `GPT Image Studio v1.1.1 Setup.exe` - NSIS installer (Desktop +
+- `GPT Image Studio v1.1.2 Setup.exe` - NSIS installer (Desktop +
   Start Menu shortcuts, uninstaller)
-- `GPT Image Studio v1.1.1 Portable.exe` - no install required
+- `GPT Image Studio v1.1.2 Portable.exe` - no install required
 
 ## License
 

@@ -2670,3 +2670,152 @@ unchanged from v1.1.0):
 `CHANGELOG.md` (new 1.1.1 entry), `README.md` (Release section),
 `ROADMAP.md` (1.1.1 now RELEASED, 1.1.0's "known issue" note points to
 it as fixed).
+
+## Session 24 (2026-08-05): P0 - v1.1.1's fix confirmed real but insufficient; true root cause found and fixed in production only, via a purpose-built Debug build
+
+**Report:** the exact same repro passed cleanly in `npm run dev` but
+still failed in the packaged v1.1.1 installer. Per instruction, treated
+as a genuine production-runtime divergence rather than re-litigating
+the React state fix.
+
+**Static dev-vs-prod audit:** grepped the entire `electron/`+`src/`
+tree for every conditional touching `isPackaged`/`VITE_DEV_SERVER_URL`/
+`DEVTOOLS_ENABLED`/`import.meta.env`. Exactly 3 exist app-wide (load-
+URL-vs-load-file, DevTools availability, WS-AUDIT's own dev-only gate)
+- none touch Workspace/generate/download logic. Confirmed the packaged
+and dev builds run identical logic; any divergence would have to be
+timing-exposed, not a different code path.
+
+**Built `GPT Image Studio Debug.exe`** (portable, one-off, not a
+release) to get real evidence instead of guessing further:
+- `WS_AUDIT_FORCE` env-var escape hatch added (`preload.ts` exposes
+  `window.__WS_AUDIT_FORCE__`) so WS-AUDIT can be force-enabled in an
+  already-packaged build without a dev rebuild - Vite normally bakes
+  `import.meta.env.DEV` to a literal `false` and Rollup dead-code-
+  eliminates the renderer-side logging calls entirely in a prod build.
+- Discovered live: a packaged Windows Electron app has no attached
+  console - redirecting stdout/stderr of a launched exe captured
+  nothing, even with logging force-enabled. Added file-based logging
+  (`logs/ws-audit.log`, next to the exe - `PORTABLE_EXECUTABLE_DIR`-
+  aware for the Portable build) as the real capture mechanism.
+- Renderer events now also forward over IPC (`ws-audit:log`) into the
+  SAME log file as main-process events, tagged with `ipcSenderId` - one
+  interleaved timeline, no DevTools required to capture anything.
+- `FORCE_DEBUG_BUILD` flag (in both `main.ts` and `preload.ts`,
+  duplicated since they're separate Vite entries) force-enables
+  DevTools + all diagnostics unconditionally at build time, so the
+  Debug exe needs zero env vars or terminal - just run it. Flipped to
+  `true`, built, extracted the Portable output as `GPT Image Studio
+  Debug.exe`, then immediately reverted both flags back to `false` in
+  source (verified via `tsc`/`eslint`) - normal dev/release builds
+  unaffected by any of this.
+
+**Forensic analysis of the captured `ws-audit.log`** (37 lines, 3
+Workspaces: A/B/C in creation order): mechanically confirmed, line by
+line, that every `setWorkspaces` diff touched exactly the Workspace it
+targeted and every other Workspace was byte-identical before/after -
+zero `CLOBBER CONFIRMED` events anywhere. **Workspace A never entered
+Error in this run at all** - it was Workspace B, and the mechanism was
+entirely different from a state clobber:
+
+- B's `Error Raised` (reason `open-image-viewer-failed`, detail "no
+  generated-image container found") fired only 1.722s after B's
+  conversationUrl was captured - far too fast for a real ChatGPT
+  image generation (the codebase's own 15s timeouts reflect the
+  developers' own expectation of how long this normally takes).
+- Root cause: `ChatGPT.ts`'s `buildWaitImageScript()` counted
+  `img[src*="/backend-api/estuary/content"]` document-wide with zero
+  scoping. That exact URL pattern is already documented (in
+  `buildOpenImageViewerScript()`'s own pre-existing comment) to also
+  match a Workspace's own uploaded image thumbnail. B had just
+  finished uploading its own attached image into the composer
+  immediately before this - a re-rendered/duplicated copy of that
+  thumbnail (plausibly during ChatGPT's own placeholder-URL-to-real-
+  URL routing transition) satisfied `buildWaitImageScript`'s naive
+  `images.length > startCount` check, which then fed into
+  `buildOpenImageViewerScript()` correctly failing to find it inside
+  an `imagegen-image` container, since it was never a generated image
+  at all.
+- Confirmed as a genuine race, not a hard bug: Workspace A went
+  through the identical upload-then-generate path in the same run
+  without hitting it - consistent with a DOM-timing race whose window
+  widens under the heavier concurrent load of 3 simultaneous webview
+  guests actually doing real network/DOM work, which plausibly
+  explains why the packaged build (tighter, faster timing) hit it more
+  reliably than dev, without there being any differing code path.
+
+**Fix** (minimal, `ChatGPT.ts` only): scoped `buildWaitImageScript()`'s
+counted selector to `[class*="imagegen-image"] img[src*="/backend-api/
+estuary/content"]` - the same container-scoping
+`buildOpenImageViewerScript()` already used - making the uploaded-
+image false match structurally impossible. No other function changed;
+`buildOpenImageViewerScript` and `buildWaitUploadScript` still use the
+original unscoped `GENERATED_IMAGE_SELECTOR` untouched. `tsc`/`eslint`
+clean. Rebuilt the Debug exe with the fix (same force-flip/build/
+revert cycle). User ran the 20x repro against it - reported passing.
+No commit, no release yet per instruction.
+
+## Session 25 (2026-08-05): Version 1.1.2 - official production release
+
+User ran the 20x repro against the Session 24 Debug build - passed.
+This session's own tooling still can't drive that repro directly (no
+ChatGPT login), so found the user's actual session log left behind at
+`Release/logs/ws-audit.log` (`PORTABLE_EXECUTABLE_DIR`-based path, so
+the Debug exe always wrote there) and cross-checked it before
+proceeding: 0 `Error Raised`, 0 `CLOBBER CONFIRMED`, 15 `Save
+Completed`/`Generate Complete` events across ~6 Workspaces in that
+real session - corroborates the user's report with independently
+readable evidence, not just taken on faith.
+
+**Diagnostics confirmed inactive by default, framework kept in
+source** (per instruction - not stripped, just gated off):
+`FORCE_DEBUG_BUILD` confirmed `false` in both `main.ts`/`preload.ts`
+before building. `import.meta.env.DEV || window.__WS_AUDIT_FORCE__`
+is no longer Vite-constant-foldable (the `window.__WS_AUDIT_FORCE__`
+operand is a runtime value), so the renderer bundle still *contains*
+the WS-AUDIT code (confirmed: 1 match in the built JS) rather than
+being dead-code-eliminated - but defaults to inactive since
+`WS_AUDIT_FORCE` is unset and `FORCE_DEBUG_BUILD` is false. Verified
+live: launched the installed v1.1.2 and the Portable v1.1.2 build with
+no env vars - neither created a `logs/` folder at all, and the stale
+Debug-session log gained zero new lines after the Portable launch.
+
+**Pre-release verification** (parts verifiable without a live ChatGPT
+session): ✓ `prompts.json` still `[]`, ✓ `WorkTypeStore` still starts
+empty, ✓ icon files present (`build/icon.ico`, `public/icon.ico`), ✓
+copyright text consistent across `package.json`
+(`"Copyright © 2026 leessem"`) and `Settings.tsx`'s credits section
+(`© 2026 leessem`, "All Rights Reserved"). Multi-workspace generation/
+auto-save/no-false-Error: per the user's live-test report plus the
+cross-checked `ws-audit.log` above.
+
+**Version bump:** `package.json` 1.1.1 -> 1.1.2. Updated
+`CHANGELOG.md` (new 1.1.2 entry), `README.md` (Release section),
+`ROADMAP.md` (1.1.2 now RELEASED with the full root-cause writeup;
+1.1.0's and 1.1.1's "known issue" notes both corrected to point at
+1.1.2 as the actual fix, since 1.1.1's fix was real but not this bug's
+root cause).
+
+**Build:** `npm run build` succeeded clean, producing
+`GPT Image Studio v1.1.2 Setup.exe`/`Portable.exe`.
+
+**Release verification:**
+- Silently installed (`/S`) v1.1.2 over the existing v1.1.1 - registry
+  confirms `GPT Image Studio 1.1.2`.
+- ✓ Desktop shortcut, ✓ Start Menu shortcut, both present.
+- ✓ Icon extracted from the installed exe (32x32).
+- ✓ Installed app launched correctly (correct window title), closed
+  cleanly.
+- ✓ Portable build launched correctly, closed cleanly.
+- ✓ Neither produced a `logs/` folder (diagnostics correctly inactive
+  by default).
+
+**Release folder:** cleaned to exactly `GPT Image Studio v1.1.2
+Setup.exe`, `GPT Image Studio v1.1.2 Portable.exe`, `README.txt`,
+`VERSION.txt` (both updated for 1.1.2) - removed the Debug exe, the
+stale `logs/` directory (after cross-checking it, see above),
+`win-unpacked/`, `builder-debug.yml`, `latest.yml`, and the `.blockmap`
+file.
+
+**Commit:** "Release Version 1.1.2", tag `v1.1.2`, both pushed to
+`origin/main`.
