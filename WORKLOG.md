@@ -2365,3 +2365,157 @@ updated to reflect Version 1.0 as released.
 the `electron-builder` configuration in `package.json` - pushed to
 `origin/main`. `Release/` itself is not committed (build output,
 already covered by `.gitignore`'s case-insensitive `release` entry).
+
+## Session 20 (2026-08-05): P0 fix - cross-Workspace download attribution race
+
+**Reported from a second PC** (not reproducible on the dev machine -
+a genuine timing-dependent race, not a logic bug that would show up
+every time): starting a generation in one Workspace could sometimes
+make a *different, unrelated* Workspace show an Error, while
+generation itself kept working and automatic saving sometimes failed.
+
+**Root cause**, found by auditing `electron/main.ts` for anything
+shared across Workspaces (per the report's own suspicion list -
+`currentWorkspace`/`currentConversation`/`currentBrowser`/
+`currentGenerateState`/`currentSavingState`-style globals): every
+other piece of per-Workspace state was already correctly isolated
+(`Workspace.tsx`'s `onGenerate` captures its own `workspace` into the
+closure passed to `runGenerate`, `onUpdate` always targets that exact
+`workspace.id`, `BrowserPool` keys every webview/ready-state/pending-
+resolver by `workspaceId`). The one real exception was the download
+save path: `electron/main.ts` held the in-flight download as a single
+module-level `pendingDownload` variable, correlated to a Workspace
+only by *call order* (whichever Workspace's `armDownload()` ran most
+recently). With two Workspaces generating close together, Workspace
+B's `armDownload()` could overwrite Workspace A's still-pending entry
+before A's own `will-download` fired. A's real download then got
+saved under B's filename/id, B's `waitForDownload(B.id)` resolved with
+A's file, and A's own `waitForDownload(A.id)` never saw a matching
+event - it timed out (`DOWNLOAD_EVENT_TIMEOUT_MS`, 15s) into a false
+`status: "error"`, even though A's generation had genuinely succeeded
+end-to-end.
+
+**Fix**: stopped relying on call order entirely. `will-download`'s own
+third argument is the `webContents` that actually triggered the
+download - since every Workspace already owns a distinct, persistent
+`<webview>` guest (`BrowserPool`), that `webContents.id` is a reliable,
+per-Workspace key with no race window:
+
+- `Browser.tsx` now sends `browser.registerWebview(workspaceId,
+  el.getWebContentsId())` right after that Workspace's own webview
+  `dom-ready` (and `unregisterWebview` on `destroy()`).
+- `main.ts` keeps a `webviewOwners: Map<webContentsId, workspaceId>`
+  populated from that, and `pendingDownloads: Map<workspaceId,
+  PendingDownload>` (replacing the single `pendingDownload`) keyed the
+  same way `armDownload`/`waitForDownload` already are.
+- `handleWillDownload` now resolves the download's owning Workspace by
+  looking up `webviewOwners.get(webContents.id)` from the event's own
+  `webContents`, then consumes that Workspace's own pending entry -
+  never "whichever one is currently set."
+
+**Verification**: `npx tsc --noEmit` and `npx eslint . --ext ts,tsx`
+both clean. Ran `npm run dev` - Vite + electron-vite built
+`dist-electron/main.js`/`preload.mjs` with no build errors and the
+Electron window launched with no startup crash. Live verification of
+the original 3-simultaneous-Workspace repro (A generate / B upload /
+C generate against real ChatGPT) still needs to be run interactively
+against a real logged-in ChatGPT account - left the dev instance
+running for that.
+
+## Session 21 (2026-08-05): Version 1.1.0 - official production release
+
+Maintenance release, no new features - ships Session 20's cross-
+Workspace download-attribution fix as the official installer.
+
+**Version bump:** `package.json` 1.0.0 -> 1.1.0. Updated `README.md`
+(Release section) and `ROADMAP.md` (new "Version 1.1.0 - RELEASED"
+entry above the existing 1.0.0 record, which was left untouched as
+history). Created `CHANGELOG.md` (new file) with the 1.1.0 and 1.0.0
+entries.
+
+**Reset to default first-install state:** audited every place default
+data could leak into a fresh install.
+- Workspace data is already runtime-only, never persisted - nothing
+  to reset.
+- `WorkTypeStore` already starts empty (`[]`) when no
+  `localStorage` key exists - nothing to reset.
+- Found one real bundled default: `PromptStore` migrates
+  `src/data/prompts.json` (two old placeholder prompts, "Portrait"/
+  "Anime", present since the very first commit) into the Prompt
+  Library on first run when nothing is persisted yet, "so a fresh
+  install still starts with something in the library instead of
+  empty" - directly contradicts this release's "Empty Prompt Library"
+  requirement. Emptied `prompts.json` to `[]` (the migration code
+  itself is untouched/still there for anyone with old data - only the
+  bundled *default* content was reset, per instruction not to remove
+  user functionality).
+- "Temporary runtime data" was this dev machine's own accumulated
+  `%APPDATA%\gpt-image-studio` from testing sessions - not something
+  that ships in the build at all (Electron only creates/reads it at
+  runtime), so nothing to change in the repo; handled instead as part
+  of verification below.
+
+**Build:** `npm run build` initially failed - `electron-builder`
+couldn't extract its bundled `winCodeSign` helper archive (needed even
+for a Windows-only, unsigned build, apparently for `rcedit`-style exe
+icon/version embedding) because creating the two `darwin`-side
+symlinks inside it requires Windows Developer Mode or an elevated
+process (same limitation the README already documents, and that was
+resolved once before per Session 17-19 - Developer Mode had reverted
+off since). User re-enabled Developer Mode (Settings > Privacy &
+security > For developers); confirmed via
+`HKLM:\...\AppModelUnlock!AllowDevelopmentWithoutDevLicense = 1`, then
+the build succeeded cleanly, producing `GPT Image Studio v1.1.0
+Setup.exe` and `GPT Image Studio v1.1.0 Portable.exe` in `Release/`.
+
+**Verification** (live, this machine, real install/uninstall
+machinery - not just build-artifact existence):
+- Before touching anything, the real `%APPDATA%\gpt-image-studio`
+  (containing the real Prompt Library, Work Type list, and Settings -
+  including a real `downloadFolder` override) was renamed aside, not
+  deleted, so verification could run against a genuinely empty
+  profile without any risk to real data.
+- Ran `GPT Image Studio v1.1.0 Setup.exe /S` (silent NSIS install,
+  per-user, no prior install existed on this machine to conflict
+  with). Exit code 0.
+- ✓ Install directory: `%LOCALAPPDATA%\Programs\GPT Image Studio\`
+  contains `GPT Image Studio.exe` and the uninstaller.
+- ✓ Desktop shortcut and Start Menu shortcut both created, both
+  targeting the correct installed `.exe`.
+- ✓ Uninstall entry registered in
+  `HKCU:\...\Uninstall\716269bc-3579-5ec6-9c7f-ade60fbfeadf` as
+  "GPT Image Studio 1.1.0", version 1.1.0.
+- ✓ Application icon: extracted via `System.Drawing.Icon` from the
+  installed `.exe` - present, 32x32.
+- Launched the freshly installed app. The First Launch Notice
+  appeared on the real screen and was acknowledged live (by the
+  actual user at the keyboard, not simulated) - `settings.json` came
+  back with only `{ "firstLaunchNoticeShown": true }`, no
+  `downloadFolder`/`filenamePrefix` keys at all, confirming ✓ Default
+  Settings (Download Folder and Filename Prefix both still on their
+  code-level defaults).
+- ✓ Empty Prompt Library / ✓ Empty Work Type list: confirmed via the
+  freshly created `Local Storage/leveldb` - its log file was 0 bytes
+  (no prior writes), consistent with `PromptStore`/`WorkTypeStore`
+  both starting from their now-empty defaults, backed by the
+  `prompts.json` fix above.
+- Closed the test instance, launched `GPT Image Studio v1.1.0
+  Portable.exe` directly as a second smoke test - started cleanly (6
+  processes, normal for Electron main + helpers), closed cleanly.
+- Restored the real `%APPDATA%\gpt-image-studio` (rename back, not a
+  reconstruction) - confirmed byte-identical afterward, including the
+  Korean `downloadFolder` path, which round-tripped correctly.
+- The v1.1.0 installer was left installed on this machine afterward
+  (Desktop/Start Menu shortcuts included) rather than uninstalled,
+  since this is the official release build and there was no prior
+  install to preserve.
+
+**Release folder:** `Release/` cleaned down to exactly `GPT Image
+Studio v1.1.0 Setup.exe`, `GPT Image Studio v1.1.0 Portable.exe`,
+`README.txt`, and `VERSION.txt` - removed `win-unpacked/`,
+`builder-debug.yml`, `latest.yml`, the `.blockmap` file, and a stale
+`0.0.0/` directory left over from the same earlier failed attempt
+noted in Session 19 (never cleaned up until now).
+
+**Commit:** "Release Version 1.1.0", tag `v1.1.0`, both pushed to
+`origin/main`.

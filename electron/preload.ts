@@ -67,6 +67,20 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
   },
 
   // ==========================
+  // Browser API
+  // ==========================
+
+  browser: {
+    registerWebview(workspaceId: string, webContentsId: number) {
+      ipcRenderer.send("browser:registerWebview", workspaceId, webContentsId);
+    },
+
+    unregisterWebview(workspaceId: string) {
+      ipcRenderer.send("browser:unregisterWebview", workspaceId);
+    }
+  },
+
+  // ==========================
   // Settings API
   // ==========================
 
@@ -135,6 +149,12 @@ declare global {
         verifyFile(
           filePath: string
         ): Promise<{ exists: boolean; size: number }>;
+      };
+
+      browser: {
+        registerWebview(workspaceId: string, webContentsId: number): void;
+
+        unregisterWebview(workspaceId: string): void;
       };
 
       settings: {

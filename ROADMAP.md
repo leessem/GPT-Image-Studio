@@ -1,5 +1,21 @@
 # ROADMAP
 
+## Version 1.1.0 - RELEASED (2026-08-05)
+
+Maintenance release - no new features. Fixes the cross-Workspace
+download attribution race reported from a second PC (see WORKLOG
+Session 20/21 and the "Post-release fixes" entry under Version 1.0
+below) and ships it as the official production installer:
+
+- Fixed multi-Workspace download race condition.
+- Improved Workspace isolation.
+- Improved download ownership.
+- Improved stability across different PCs.
+- Official production installer (`GPT Image Studio v1.1.0 Setup.exe` /
+  `Portable.exe`), verified to install to a genuinely empty first-run
+  state (empty Prompt Library, empty Work Type list, default
+  Settings) - see WORKLOG Session 21.
+
 ## Version 1.0 - RELEASED (2026-08-03)
 
 GPT Image Studio is a dedicated ChatGPT Image Generation Studio, not
@@ -55,6 +71,23 @@ transcript):
 - ✅ Workspace state does not survive a restart; the Prompt Library,
   Work Type list, and Settings (Download Folder, filename Prefix) all
   do - confirmed both ways via the live DOM after an actual restart.
+
+**Post-release fixes:**
+
+- ✅ **P0 - cross-Workspace download attribution race** (reported from
+  a second PC, not reproducible on the dev machine - see WORKLOG
+  Session 20): `electron/main.ts` tracked the in-flight download as a
+  single shared `pendingDownload` variable, keyed only by call order.
+  When two Workspaces generated close together, a second Workspace's
+  `armDownload()` could overwrite the first Workspace's still-pending
+  entry before its `will-download` fired, so the first Workspace's real
+  download got saved under the second Workspace's name and its own
+  `waitForDownload()` timed out into a false Error - while generation
+  itself had actually succeeded. Fixed by resolving every download via
+  the actual triggering `<webview>`'s own `webContents.id`
+  (`will-download`'s third argument) against a `workspaceId` registered
+  right after that Workspace's own webview `dom-ready`, instead of
+  relying on arm order at all.
 
 **The Workspace IS the tab.** There is no separate Job, Project, or
 Queue concept. Each top tab is one independent Workspace, owning

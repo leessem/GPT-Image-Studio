@@ -174,6 +174,15 @@ const BrowserPool = forwardRef<BrowserPoolHandle, BrowserPoolProps>(
 
             readyWorkspaceIds.current.add(workspaceId);
 
+            // Lets main.ts resolve a later `will-download` back to this
+            // exact Workspace via its own webview's webContents.id, so
+            // downloads are never attributed to whichever Workspace last
+            // called armDownload (see webviewOwners in electron/main.ts).
+            window.ipcRenderer.browser.registerWebview(
+              workspaceId,
+              el.getWebContentsId()
+            );
+
             const resolve = pendingResolvers.current.get(workspaceId);
 
             pendingResolvers.current.delete(workspaceId);
@@ -251,6 +260,8 @@ const BrowserPool = forwardRef<BrowserPoolHandle, BrowserPoolProps>(
         pendingResolvers.current.delete(workspaceId);
         wiredWorkspaceIds.current.delete(workspaceId);
         refCallbacks.current.delete(workspaceId);
+
+        window.ipcRenderer.browser.unregisterWebview(workspaceId);
 
         setWorkspaceIds(prev => prev.filter(id => id !== workspaceId));
 

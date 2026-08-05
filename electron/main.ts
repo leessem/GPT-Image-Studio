@@ -104,7 +104,25 @@ interface PendingDownload {
   workTypePrefix: string;
 }
 
-let pendingDownload: PendingDownload | null = null;
+// V1.0 multi-Workspace isolation: a download must always be attributed to
+// the Workspace whose own <webview> guest actually triggered it - never to
+// "whichever Workspace armed most recently" (a single shared variable here
+// let a fast Workspace B armDownload() overwrite a slower Workspace A's
+// still-pending entry, so A's real download got saved under B's name/id
+// and A's own waitForDownload() timed out into a false "error" state, even
+// though A's generation had actually succeeded). Keyed by workspaceId
+// (the same id armDownload/waitForDownload already use), and resolved via
+// each download's own triggering webContents.id, looked up in
+// webviewOwners below - never by call order.
+const pendingDownloads = new Map<string, PendingDownload>();
+
+// Maps a Workspace's <webview> guest webContents.id to its owning
+// workspaceId, populated by Browser.tsx right after each webview's own
+// dom-ready (browser:registerWebview) and cleared when that Workspace is
+// closed (browser:unregisterWebview). This is what lets `will-download`
+// resolve a download back to the correct Workspace even when several
+// Workspaces are generating at the same moment.
+const webviewOwners = new Map<number, string>();
 
 /**
  * Strips illegal Windows filename characters and surrounding
@@ -221,10 +239,14 @@ app.whenReady().then(() => {
 
   const handleWillDownload: Parameters<
     Electron.Session["on"]
-  >[1] = (_event, item) => {
-    const pending = pendingDownload;
+  >[1] = (_event, item, webContents) => {
+    const workspaceId = webviewOwners.get(webContents.id);
 
-    pendingDownload = null;
+    const pending = workspaceId ? pendingDownloads.get(workspaceId) : undefined;
+
+    if (workspaceId) {
+      pendingDownloads.delete(workspaceId);
+    }
 
     const fileName = buildAutoFilename(
       generatedImagesDir,
@@ -263,9 +285,33 @@ app.whenReady().then(() => {
   ipcMain.on(
     "image:armDownload",
     (event, id: string, baseName: string, workTypePrefix: string) => {
-      pendingDownload = { id, baseName, workTypePrefix };
+      pendingDownloads.set(id, { id, baseName, workTypePrefix });
 
       event.returnValue = true;
+    }
+  );
+
+  // Registers/unregisters which Workspace owns a given <webview> guest, so
+  // handleWillDownload can resolve a download back to the Workspace that
+  // actually triggered it (see webviewOwners above) instead of relying on
+  // arm order.
+  ipcMain.on(
+    "browser:registerWebview",
+    (_event, workspaceId: string, webContentsId: number) => {
+      webviewOwners.set(webContentsId, workspaceId);
+    }
+  );
+
+  ipcMain.on(
+    "browser:unregisterWebview",
+    (_event, workspaceId: string) => {
+      for (const [webContentsId, ownerId] of webviewOwners) {
+        if (ownerId === workspaceId) {
+          webviewOwners.delete(webContentsId);
+        }
+      }
+
+      pendingDownloads.delete(workspaceId);
     }
   );
 
