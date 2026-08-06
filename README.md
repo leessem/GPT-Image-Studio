@@ -114,6 +114,18 @@ or for verifying the app itself works, only for producing the final
   Start Menu shortcuts, uninstaller)
 - `GPT Image Studio v1.2.1 Portable.exe` - no install required
 
+## Project Documentation
+
+[`PROJECT_SPEC.md`](PROJECT_SPEC.md) contains the complete technical
+specification of GPT Image Studio, including architecture, workspace
+design, prompt system, backup format, release policy, versioning
+strategy, and future development guidelines. This document is intended
+for future development and AI-assisted maintenance.
+
+See also `ROADMAP.md` for the full verified feature list and
+`WORKLOG.md` for the session-by-session history of how it was built
+and verified.
+
 ## License
 
 © 2026 leessem. All Rights Reserved.
