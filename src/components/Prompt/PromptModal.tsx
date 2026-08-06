@@ -50,6 +50,10 @@ export default function PromptModal({
         initial?.requiresName ?? false
     );
 
+    const [requiresNumber, setRequiresNumber] = useState(
+        initial?.requiresNumber ?? false
+    );
+
     const handleSave = () => {
 
         onSave({
@@ -61,6 +65,8 @@ export default function PromptModal({
             negativePrompt,
 
             requiresName,
+
+            requiresNumber,
 
         });
 
@@ -148,6 +154,27 @@ export default function PromptModal({
                     <span>사용자 이름 입력 필요</span>
 
                 </label>
+
+                <label className="prompt-modal-checkbox-field">
+
+                    <input
+
+                        type="checkbox"
+
+                        checked={requiresNumber}
+
+                        onChange={e => setRequiresNumber(e.target.checked)}
+
+                    />
+
+                    <span>숫자 입력 필요</span>
+
+                </label>
+
+                <p className="prompt-modal-help-text">
+                    ※ 프롬프트에서 {"{NAME}"} 또는 {"{NUM}"} 키워드를 입력하면
+                    자동으로 치환됩니다.
+                </p>
 
                 <div className="prompt-modal-actions">
 

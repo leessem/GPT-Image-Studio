@@ -2912,3 +2912,108 @@ full writeup).
 
 **Commit:** "Release Version 1.2.0", tag `v1.2.0`, both pushed to
 `origin/main`.
+
+---
+
+## Session 27 (2026-08-06): Version 1.2.1 - {NUM} Prompt Variable, feature enhancement release
+
+Scope for this session, per instruction: extend v1.2.0's Prompt
+Variable system with a second reserved variable, `{NUM}` - no bug
+fixes, no Workspace-architecture/Work-Type/filename-generation/
+download changes, and v1.2.0's `{NAME}` behavior explicitly untouched.
+
+### Implementation
+
+- `PromptItem`/`PromptDraft`/`PromptExportItem` gained `requiresNumber:
+  boolean` (default `false`) - same shape/validation/migration pattern
+  `requiresName` already used in `Promptstore.ts` (localStorage
+  validation treats it as optional, `loadPersistedPrompts` normalizes
+  a missing value to `false`, `create`/`update`/`exportPayload`/all
+  three `importPayload` branches carry it through).
+- `PromptModal.tsx`: a second checkbox, "숫자 입력 필요", directly
+  below "사용자 이름 입력 필요", plus an always-visible help line ("※
+  프롬프트에서 {NAME} 또는 {NUM} 키워드를 입력하면 자동으로
+  치환됩니다.") - new `.prompt-modal-help-text` CSS class.
+- `Workspace` type gained `customerNumber?: string`;
+  `WorkspaceService.setWorkspaceCustomerNumber` mirrors
+  `setWorkspaceCustomerName`. `WorkspacePanel.tsx` shows a "숫자" input
+  above Generate whenever the selected prompt's `requiresNumber` is
+  true (new `.workspace-customer-number-input`/
+  `.workspace-number-required-message` CSS, mirroring the existing
+  name-field classes rather than generalizing them - kept the two
+  fields' styling fully independent per the "don't touch {NAME}
+  behavior" instruction), blocking Generate with "숫자를
+  입력해주세요." while empty. `Workspace.onGenerate` got a second,
+  independent defensive guard alongside the existing `requiresName`
+  one.
+- `src/utils/promptVariables.ts`'s `applyPromptVariables` gained a
+  third parameter (`customerNumber`), replacing every `{NUM}` the same
+  way it already replaced `{NAME}` - the two substitutions run as two
+  independent `if` blocks over the same `result` string, neither
+  depending on the other, and the existing `{NAME}` `split/join` logic
+  is byte-for-byte unchanged. `generate.ts`'s one call site updated to
+  pass `workspace.customerNumber` as the new argument.
+- Confirmed no changes were needed in `WorkType.ts`/`WorkTypeStore.ts`,
+  `Settings.tsx`, or `electron/main.ts`/`preload.ts` - the v1.2.0
+  unified Backup/Restore file format already round-trips whatever
+  fields `PromptStore.exportPayload()` returns, so `requiresNumber`
+  flows through automatically with no format-specific code.
+
+### Verification
+
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`: clean.
+- Node-level verification (same esbuild-bundle-and-run-under-Node
+  technique as v1.2.0, necessary for the same reason - native dialogs
+  can't be driven headlessly): 22 new checks covering `{NUM}`
+  substitution (single/multiple/no-op-with-no-value/template-never-
+  mutated), `{NAME}` + `{NUM}` together (including the case where only
+  one of the two values is supplied while both keywords appear in the
+  prompt - confirmed the other keyword is left untouched, not
+  accidentally blanked), `requiresNumber` independent of `requiresName`
+  on create, a simulated v1.2.0 localStorage entry (has `requiresName`,
+  no `requiresNumber` key at all) normalizing correctly, a simulated
+  v1.2.0 backup file restoring with `requiresNumber` defaulted to
+  `false`, a pre-1.2.0 bare-array legacy backup restoring with both
+  flags `false`, and WorkType's own exported shape confirmed unchanged
+  by this release. All 20 v1.2.0 checks (`{NAME}`, unified backup round-
+  trip, WorkType CRUD/duplicate-strategies) re-run against the freshly
+  rebuilt bundles and still passed unchanged - 42/42 total across both
+  harnesses.
+- `npm run dev`: launched clean, no console errors. One relaunch was
+  needed mid-session after a stray "GPT Image Studio.exe" process from
+  earlier testing produced Chromium cache-lock errors (`Unable to move
+  the cache`) - the same known userData-profile-sharing behavior
+  documented in Session 19/25 (dev mode and any installed/portable
+  build of this app share one `userData` path); killing every stray
+  process before relaunching resolved it cleanly, consistent with
+  precedent.
+- `git diff --stat` reviewed twice: confirmed the change touches only
+  Prompt Variable/Prompt Library files (11 files, `Prompt.css`,
+  `PromptModal.tsx`, `Workspace.tsx`, `WorkspacePanel.css/tsx`,
+  `WorkspaceService.ts`, `generate.ts`, `Promptstore.ts`, `Prompt.ts`,
+  `Workspace.ts`, `promptVariables.ts`) - `electron/main.ts`/
+  `preload.ts`, `WorkType.ts`/`WorkTypeStore.ts`, `Settings.tsx`, and
+  filename generation are untouched. An incidental `dist-electron/*`
+  rebuild-noise diff (esbuild's minifier reassigns identifiers
+  non-deterministically across separate `npm run dev` invocations even
+  with no source change) was caught and reverted before committing,
+  confirmed via `git diff --stat electron/main.ts electron/preload.ts`
+  showing zero change to the actual TypeScript source.
+
+### Version bump
+
+`package.json` 1.2.0 -> 1.2.1. Updated `CHANGELOG.md` (new 1.2.1
+entry), `README.md` (Prompt Library feature description + Release
+section), `ROADMAP.md` (1.2.1 RELEASED with full writeup).
+
+### Build & release
+
+`npm run build` produced `GPT Image Studio v1.2.1 Setup.exe`/
+`Portable.exe`. `Release/` cleaned to exactly those two installers plus
+`README.txt`/`VERSION.txt` (both updated for 1.2.1) and the sample
+empty `GPT_Image_Studio_Backup.json` template - removed
+`builder-debug.yml`, `latest.yml`, `.blockmap`, `win-unpacked/`, and
+the prior v1.2.0 installers, same as every prior release.
+
+**Commit:** "Release Version 1.2.1", tag `v1.2.1`, both pushed to
+`origin/main`.

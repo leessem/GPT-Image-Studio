@@ -47,6 +47,8 @@ interface WorkspacePanelProps {
 
     onSetCustomerName: (customerName: string) => void;
 
+    onSetCustomerNumber: (customerNumber: string) => void;
+
     onGenerate: () => void;
 
     onClear: () => void;
@@ -70,6 +72,8 @@ export default function WorkspacePanel({
     onSelectWorkType,
 
     onSetCustomerName,
+
+    onSetCustomerNumber,
 
     onGenerate,
 
@@ -189,6 +193,17 @@ export default function WorkspacePanel({
     const nameRequired = selectedPrompt?.requiresName ?? false;
 
     const nameMissing = nameRequired && !workspace.customerName?.trim();
+
+    // ========================================================================
+    // Prompt Variable feature (v1.2.1) - same mechanism as 사용자 이름
+    // above, for the second reserved variable {NUM}. Independent of
+    // requiresName/customerName - either, both, or neither can be
+    // active for a given prompt/Workspace.
+    // ========================================================================
+
+    const numberRequired = selectedPrompt?.requiresNumber ?? false;
+
+    const numberMissing = numberRequired && !workspace.customerNumber?.trim();
 
     return (
 
@@ -406,6 +421,48 @@ export default function WorkspacePanel({
             )}
 
             {/* ---------------------------------------------------------
+                숫자 (Prompt Variable) - only shown for prompts whose
+                Prompt Library entry requires it. Independent of the
+                사용자 이름 field above.
+            ---------------------------------------------------------- */}
+
+            {numberRequired && (
+
+                <div className="workspace-panel-section">
+
+                    <div className="workspace-panel-section-title">
+
+                        숫자
+
+                    </div>
+
+                    <input
+
+                        type="text"
+
+                        className="workspace-customer-number-input"
+
+                        value={workspace.customerNumber ?? ""}
+
+                        onChange={e => onSetCustomerNumber(e.target.value)}
+
+                        placeholder="숫자를 입력하세요"
+
+                    />
+
+                    {numberMissing && (
+
+                        <span className="workspace-number-required-message">
+                            숫자를 입력해주세요.
+                        </span>
+
+                    )}
+
+                </div>
+
+            )}
+
+            {/* ---------------------------------------------------------
                 Generate / Clear
             ---------------------------------------------------------- */}
 
@@ -417,7 +474,7 @@ export default function WorkspacePanel({
 
                         className="workspace-generate-button"
 
-                        disabled={!workspace.prompt || workspace.status === "running" || nameMissing}
+                        disabled={!workspace.prompt || workspace.status === "running" || nameMissing || numberMissing}
 
                         onClick={onGenerate}
 

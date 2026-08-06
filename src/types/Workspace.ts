@@ -70,6 +70,15 @@ export interface Workspace {
      */
     customerName?: string;
 
+    /**
+     * Prompt Variable feature (v1.2.1): free-text value substituted for
+     * every {NUM} occurrence in `prompt` right before sending to
+     * ChatGPT. Only relevant when the selected Prompt's requiresNumber
+     * is true; independent of customerName/requiresName - either, both,
+     * or neither can be set per Workspace.
+     */
+    customerNumber?: string;
+
 }
 
 export function createWorkspace(): Workspace {

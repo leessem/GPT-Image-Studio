@@ -134,6 +134,13 @@
     cursor:pointer;
 }
 
+.prompt-modal-help-text{
+    font-size:11px;
+    color:#666666;
+    margin:0;
+    line-height:1.5;
+}
+
 .prompt-modal-actions{
     display:flex;
     gap:8px;

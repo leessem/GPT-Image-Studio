@@ -333,7 +333,7 @@ export async function runGenerate({
 
         const promptResult = await browser.execute(
 
-            buildPromptScript(applyPromptVariables(workspace.prompt, workspace.customerName))
+            buildPromptScript(applyPromptVariables(workspace.prompt, workspace.customerName, workspace.customerNumber))
 
         ) as { success: boolean; step?: string; reason?: string; acceptedBy?: string } | undefined;
 

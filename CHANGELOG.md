@@ -2,6 +2,30 @@
 
 All notable changes to GPT Image Studio are documented in this file.
 
+## Version 1.2.1 (2026-08-06)
+
+Feature enhancement release extending the v1.2.0 Prompt Variable system.
+
+- **Added `{NUM}` Prompt Variable**: a second reserved variable,
+  independent of `{NAME}` - either, both, or neither can be used in a
+  given prompt.
+- **Added "숫자 입력 필요" option**: a second checkbox on each Prompt
+  Library entry (default unchecked), directly below "사용자 이름 입력
+  필요".
+- **Workspace now supports Name and Number variables independently**:
+  the Workspace panel shows a 사용자 이름 field, a 숫자 field, both, or
+  neither, based on the selected prompt's own settings; each Workspace
+  keeps its own independent values for both. Generate is blocked with
+  "사용자 이름을 입력해주세요." / "숫자를 입력해주세요." while a
+  required field is empty.
+- **Prompt editor now includes variable usage help text**: "※
+  프롬프트에서 {NAME} 또는 {NUM} 키워드를 입력하면 자동으로
+  치환됩니다." is always visible in the Prompt Library editor.
+- **Backup / Restore compatibility maintained**: the backup format
+  extends automatically (`requiresNumber` included in exported
+  prompts); existing v1.2.0 and pre-1.2.0 backup files still restore
+  correctly, with `requiresNumber` defaulting to `false` when absent.
+
 ## Version 1.2.0 (2026-08-06)
 
 First productivity-focused feature release.

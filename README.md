@@ -36,10 +36,13 @@ Workspace panel (right) ->  Image upload -> Prompt select -> Work Type
   next image can start without opening a new tab.
 - **Prompt Library** - saved Title/Prompt/Negative Prompt templates,
   persisted locally. Any template can be marked "사용자 이름 입력
-  필요" (requires a customer name); when selected, the Workspace panel
-  shows a 사용자 이름 field and every `{NAME}` in that prompt is
-  substituted with it right before sending to ChatGPT (the stored
-  template itself is never changed).
+  필요" (requires a customer name) and/or "숫자 입력 필요" (requires a
+  number) - independently, either/both/neither. When selected, the
+  Workspace panel shows a 사용자 이름 field and/or a 숫자 field to
+  match, and every `{NAME}`/`{NUM}` in that prompt is substituted with
+  the entered value(s) right before sending to ChatGPT (the stored
+  template itself is never changed). The editor always shows a help
+  note listing both reserved keywords.
 - **Work Type Management** - user-defined job categories (Settings >
   Work Type Management), shown as compact chips on the Workspace
   panel; at most one selected per tab, and its own filename prefix is
@@ -104,12 +107,12 @@ requires creating symbolic links) - not required for local development
 or for verifying the app itself works, only for producing the final
 `.exe` installer/portable build.
 
-## Release (Version 1.2.0)
+## Release (Version 1.2.1)
 
 `npm run build` produces, in `Release/`:
-- `GPT Image Studio v1.2.0 Setup.exe` - NSIS installer (Desktop +
+- `GPT Image Studio v1.2.1 Setup.exe` - NSIS installer (Desktop +
   Start Menu shortcuts, uninstaller)
-- `GPT Image Studio v1.2.0 Portable.exe` - no install required
+- `GPT Image Studio v1.2.1 Portable.exe` - no install required
 
 ## License
 

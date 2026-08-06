@@ -41,6 +41,7 @@ import {
     setWorkspaceWorkType,
     setWorkspaceUploadedImage,
     setWorkspaceCustomerName,
+    setWorkspaceCustomerNumber,
     clearWorkspace,
 } from "../../services/WorkspaceService";
 
@@ -299,6 +300,11 @@ export default function Workspace() {
             return;
         }
 
+        if (selectedPrompt?.requiresNumber && !currentWorkspace.customerNumber?.trim()) {
+            console.warn("[Generate] Aborted: this prompt requires a number");
+            return;
+        }
+
         const workspace = currentWorkspace;
 
         const browser = await browserPoolRef.current.ensure(
@@ -468,6 +474,16 @@ export default function Workspace() {
 
     };
 
+    // Prompt Variable feature (v1.2.1) - free-text value substituted for
+    // {NUM} in the selected prompt, independent of customerName/{NAME}.
+    const onSetCustomerNumber = (customerNumber: string) => {
+
+        setWorkspacesLogged("setCustomerNumber", prev =>
+            setWorkspaceCustomerNumber(prev, currentWorkspace.id, customerNumber)
+        );
+
+    };
+
     // ========================================================================
     // Prompt Library (template management only)
     // ========================================================================
@@ -583,6 +599,8 @@ export default function Workspace() {
                     onSelectWorkType={onSelectWorkType}
 
                     onSetCustomerName={onSetCustomerName}
+
+                    onSetCustomerNumber={onSetCustomerNumber}
 
                     onGenerate={onGenerate}
 

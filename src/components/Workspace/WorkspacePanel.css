@@ -175,6 +175,28 @@
     color:#dc2626;
 }
 
+.workspace-customer-number-input{
+    height:38px;
+    border:1px solid #c9cdd3;
+    outline:none;
+    border-radius:8px;
+    background:#ffffff;
+    color:#222222;
+    padding:0 10px;
+    font-family:inherit;
+    transition:border-color .15s ease;
+}
+
+.workspace-customer-number-input:focus{
+    border-color:#2563eb;
+}
+
+.workspace-number-required-message{
+    font-size:12px;
+    font-weight:600;
+    color:#dc2626;
+}
+
 .workspace-generate-row{
     display:flex;
     gap:8px;

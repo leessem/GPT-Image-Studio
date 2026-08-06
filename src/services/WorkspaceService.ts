@@ -194,6 +194,29 @@ export function setWorkspaceCustomerName(
 
 }
 
+/**
+ * Sets the Workspace's own {NUM} substitution value (Prompt Variable
+ * feature) - independent per Workspace, unrelated to Work Type and to
+ * customerName/{NAME}.
+ */
+export function setWorkspaceCustomerNumber(
+
+    workspaces: Workspace[],
+
+    id: string,
+
+    customerNumber: string
+
+): Workspace[] {
+
+    return updateWorkspace(
+        workspaces,
+        id,
+        w => ({ ...w, customerNumber })
+    );
+
+}
+
 export function setWorkspaceUploadedImage(
 
     workspaces: Workspace[],

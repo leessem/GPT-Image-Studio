@@ -48,15 +48,18 @@ function migrateLegacyPrompt(legacy: LegacyPromptItem): PromptItem {
 
         requiresName: false,
 
+        requiresNumber: false,
+
     };
 
 }
 
 /**
  * Never trust localStorage blindly - stale/legacy-shaped data must fall
- * back to a default instead of being used as-is. `requiresName` is
- * checked as optional here - items persisted before v1.2.0 won't have
- * it yet, and loadPersistedPrompts normalizes that to false afterward.
+ * back to a default instead of being used as-is. `requiresName`/
+ * `requiresNumber` are checked as optional here - items persisted
+ * before v1.2.0/v1.2.1 respectively won't have them yet, and
+ * loadPersistedPrompts normalizes both to false afterward.
  */
 function isValidPromptItem(value: unknown): value is PromptItem {
 
@@ -75,7 +78,8 @@ function isValidPromptItem(value: unknown): value is PromptItem {
         typeof item.negativePrompt === "string" &&
         typeof item.createdAt === "string" &&
         typeof item.updatedAt === "string" &&
-        (item.requiresName === undefined || typeof item.requiresName === "boolean")
+        (item.requiresName === undefined || typeof item.requiresName === "boolean") &&
+        (item.requiresNumber === undefined || typeof item.requiresNumber === "boolean")
     );
 
 }
@@ -100,6 +104,10 @@ export function isValidExportPayload(value: unknown): value is PromptExportItem[
         (
             (entry as PromptExportItem).requiresName === undefined ||
             typeof (entry as PromptExportItem).requiresName === "boolean"
+        ) &&
+        (
+            (entry as PromptExportItem).requiresNumber === undefined ||
+            typeof (entry as PromptExportItem).requiresNumber === "boolean"
         )
     );
 
@@ -122,12 +130,14 @@ function loadPersistedPrompts(): PromptItem[] | null {
         )
             return null;
 
-        // Items persisted before v1.2.0 have no requiresName field at
-        // all - normalize those to false here, once, so every other
-        // read site can rely on it always being a real boolean.
+        // Items persisted before v1.2.0/v1.2.1 have no requiresName/
+        // requiresNumber field at all - normalize those to false here,
+        // once, so every other read site can rely on them always being
+        // real booleans.
         return parsed.map(item => ({
             ...item,
             requiresName: item.requiresName ?? false,
+            requiresNumber: item.requiresNumber ?? false,
         }));
 
     }
@@ -190,6 +200,8 @@ class PromptStoreImpl {
 
             requiresName: draft.requiresName,
 
+            requiresNumber: draft.requiresNumber,
+
         };
 
         this.items = [...this.items, item];
@@ -223,6 +235,8 @@ class PromptStoreImpl {
                 negativePrompt: draft.negativePrompt,
 
                 requiresName: draft.requiresName,
+
+                requiresNumber: draft.requiresNumber,
 
                 updatedAt: new Date().toISOString(),
 
@@ -267,11 +281,12 @@ class PromptStoreImpl {
      */
     exportPayload(): PromptExportItem[] {
 
-        return this.items.map(({ title, prompt, negativePrompt, requiresName }) => ({
+        return this.items.map(({ title, prompt, negativePrompt, requiresName, requiresNumber }) => ({
             title,
             prompt,
             negativePrompt,
             requiresName,
+            requiresNumber,
         }));
 
     }
@@ -308,6 +323,7 @@ class PromptStoreImpl {
                     prompt: entry.prompt,
                     negativePrompt: entry.negativePrompt,
                     requiresName: entry.requiresName ?? false,
+                    requiresNumber: entry.requiresNumber ?? false,
                     createdAt: now,
                     updatedAt: now,
                 });
@@ -326,6 +342,7 @@ class PromptStoreImpl {
                     prompt: entry.prompt,
                     negativePrompt: entry.negativePrompt,
                     requiresName: entry.requiresName ?? false,
+                    requiresNumber: entry.requiresNumber ?? false,
                     updatedAt: now,
                 };
 
@@ -353,6 +370,7 @@ class PromptStoreImpl {
                 prompt: entry.prompt,
                 negativePrompt: entry.negativePrompt,
                 requiresName: entry.requiresName ?? false,
+                requiresNumber: entry.requiresNumber ?? false,
                 createdAt: now,
                 updatedAt: now,
             });

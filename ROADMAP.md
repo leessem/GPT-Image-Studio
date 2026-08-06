@@ -1,5 +1,62 @@
 # ROADMAP
 
+## Version 1.2.1 - RELEASED (2026-08-06)
+
+Feature enhancement release extending v1.2.0's Prompt Variable system
+with a second reserved variable - no bug fixes, no Workspace-
+architecture/filename-generation/download changes, and v1.2.0's
+`{NAME}` behavior is untouched.
+
+- `PromptItem`/`PromptDraft`/`PromptExportItem` gained `requiresNumber:
+  boolean` (default `false`), set via a new "숫자 입력 필요" checkbox
+  directly below "사용자 이름 입력 필요" in `PromptModal.tsx`, plus an
+  always-visible help note ("※ 프롬프트에서 {NAME} 또는 {NUM}
+  키워드를 입력하면 자동으로 치환됩니다."). Fully independent of
+  `requiresName` - either, both, or neither can be enabled per prompt.
+- `Workspace` gained `customerNumber?: string`
+  (`WorkspaceService.setWorkspaceCustomerNumber`). `WorkspacePanel`
+  shows a "숫자" input above Generate whenever the selected prompt's
+  `requiresNumber` is true (independent of, and in addition to, the
+  existing "사용자 이름" input), blocking Generate with "숫자를
+  입력해주세요." while empty - mirrored as a defensive guard in
+  `Workspace.onGenerate`, same pattern as `requiresName`.
+- `src/utils/promptVariables.ts`'s `applyPromptVariables` gained a
+  third parameter, `customerNumber`, replacing every `{NUM}`
+  occurrence the same way it already replaced `{NAME}` - the two
+  substitutions are independent (neither depends on the other being
+  present), and the existing `{NAME}` substitution logic is
+  byte-for-byte unchanged.
+- `PromptStore`'s validation/migration/create/update/export/import all
+  handle `requiresNumber` the same way they already handled
+  `requiresName`: missing on an existing localStorage entry or an
+  incoming backup file normalizes to `false`, so v1.2.0 backups (which
+  have `requiresName` but no `requiresNumber` key at all) and
+  pre-1.2.0 bare-array backups both continue to restore correctly with
+  no manual migration step. The unified Backup/Restore file format
+  (`{ version, prompts, workTypes }`, introduced in v1.2.0) required no
+  changes at all - `requiresNumber` flows through automatically as
+  part of each exported prompt.
+
+**Verification:**
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean.
+- Node-level verification against the actual shipped modules (same
+  esbuild-bundle-and-run-under-Node technique as v1.2.0): 22/22 new
+  checks passed, covering `{NUM}` substitution (single/multiple/no-op/
+  template-never-mutated), `{NAME}`+`{NUM}` together (including when
+  only one of the two is provided while both appear in the prompt),
+  `requiresNumber` independent of `requiresName` on create/update, a
+  v1.2.0-shaped backup (has `requiresName`, missing `requiresNumber`)
+  restoring with `requiresNumber` correctly defaulted to `false`, a
+  pre-1.2.0 bare-array legacy backup restoring with both flags `false`,
+  and WorkType's own shape confirmed untouched. All 20 pre-existing
+  v1.2.0 checks (`{NAME}`, unified backup, WorkType CRUD) re-run
+  against the same rebuilt bundles and still pass unchanged.
+- `npm run dev` launched clean (no console errors) after the change.
+- `git diff --stat` confirms `electron/main.ts`, `electron/preload.ts`,
+  `WorkType.ts`/`WorkTypeStore.ts`, `Settings.tsx`, filename generation,
+  and the rest of the Workspace architecture are untouched - this
+  release only touched the Prompt Variable/Prompt Library files.
+
 ## Version 1.2.0 - RELEASED (2026-08-06)
 
 First productivity-focused feature release - no bug fixes, purely new

@@ -25,6 +25,14 @@ export interface PromptItem {
      */
     requiresName: boolean;
 
+    /**
+     * Prompt Variable feature (v1.2.1): same mechanism as requiresName,
+     * for the second reserved variable {NUM} - shows a "숫자" input on
+     * the Workspace panel, substituted in independently of requiresName/
+     * {NAME}. Either, both, or neither can be enabled per prompt.
+     */
+    requiresNumber: boolean;
+
 }
 
 /**
@@ -42,14 +50,17 @@ export interface PromptDraft {
 
     requiresName: boolean;
 
+    requiresNumber: boolean;
+
 }
 
 /**
  * Settings > Prompt Library Backup export/import shape - deliberately
  * only Title/Prompt/Negative Prompt (no id/timestamps), since an
  * imported prompt is a fresh library entry, not a restored one.
- * `requiresName` is optional so backups written before v1.2.0 still
- * import correctly - a missing value is treated as false.
+ * `requiresName`/`requiresNumber` are optional so backups written
+ * before v1.2.0/v1.2.1 respectively still import correctly - a
+ * missing value is treated as false.
  */
 export interface PromptExportItem {
 
@@ -60,6 +71,8 @@ export interface PromptExportItem {
     negativePrompt: string;
 
     requiresName?: boolean;
+
+    requiresNumber?: boolean;
 
 }
 
