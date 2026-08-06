@@ -140,16 +140,16 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
   },
 
   // ==========================
-  // Prompt Library Backup API
+  // Backup / Restore API (Prompt Library + Work Type List, unified)
   // ==========================
 
-  promptLibrary: {
+  backup: {
     export(json: string) {
-      return ipcRenderer.invoke("promptLibrary:export", json);
+      return ipcRenderer.invoke("backup:export", json);
     },
 
     import() {
-      return ipcRenderer.invoke("promptLibrary:import");
+      return ipcRenderer.invoke("backup:import");
     }
   }
 });
@@ -209,7 +209,7 @@ declare global {
         }>;
       };
 
-      promptLibrary: {
+      backup: {
         export(json: string): Promise<
           | { success: true; filePath: string }
           | { success: false; canceled?: boolean }

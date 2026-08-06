@@ -172,6 +172,28 @@ export function clearWorkspace(
 
 }
 
+/**
+ * Sets the Workspace's own {NAME} substitution value (Prompt Variable
+ * feature) - independent per Workspace, unrelated to Work Type.
+ */
+export function setWorkspaceCustomerName(
+
+    workspaces: Workspace[],
+
+    id: string,
+
+    customerName: string
+
+): Workspace[] {
+
+    return updateWorkspace(
+        workspaces,
+        id,
+        w => ({ ...w, customerName })
+    );
+
+}
+
 export function setWorkspaceUploadedImage(
 
     workspaces: Workspace[],

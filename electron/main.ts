@@ -569,18 +569,18 @@ app.whenReady().then(() => {
   });
 
   // ===============================
-  // Prompt Library Backup
+  // Backup / Restore (Prompt Library + Work Type List, unified - v1.2.0)
   // ===============================
 
   ipcMain.handle(
-    "promptLibrary:export",
+    "backup:export",
     async (_, json: string) => {
       if (!win) {
         return { success: false };
       }
 
       const result = await dialog.showSaveDialog(win, {
-        defaultPath: "prompt-library.json",
+        defaultPath: "GPT_Image_Studio_Backup.json",
         filters: [{ name: "JSON", extensions: ["json"] }],
       });
 
@@ -594,7 +594,7 @@ app.whenReady().then(() => {
     }
   );
 
-  ipcMain.handle("promptLibrary:import", async () => {
+  ipcMain.handle("backup:import", async () => {
     if (!win) {
       return { success: false };
     }

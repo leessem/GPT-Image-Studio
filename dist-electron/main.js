@@ -1,16 +1,16 @@
-import { app as a, session as S, ipcMain as l, shell as U, BrowserWindow as T, dialog as y } from "electron";
-import { fileURLToPath as V } from "node:url";
+import { app as a, session as S, ipcMain as l, shell as U, BrowserWindow as T, dialog as _ } from "electron";
+import { fileURLToPath as B } from "node:url";
 import i from "node:path";
 import r from "node:fs";
-import { execSync as $ } from "node:child_process";
-const A = i.dirname(V(import.meta.url));
+import { execSync as V } from "node:child_process";
+const A = i.dirname(B(import.meta.url));
 process.env.APP_ROOT = i.join(A, "..");
-const B = a.requestSingleInstanceLock();
-B || a.quit();
+const $ = a.requestSingleInstanceLock();
+$ || a.quit();
 a.disableHardwareAcceleration();
 a.commandLine.appendSwitch("disable-gpu");
 a.commandLine.appendSwitch("disable-gpu-compositing");
-const L = !1, b = process.env.DEVTOOLS_ENABLED === "true" || L, E = process.env.VITE_DEV_SERVER_URL, G = i.join(process.env.APP_ROOT, "dist-electron"), F = i.join(process.env.APP_ROOT, "dist");
+const b = !1, L = process.env.DEVTOOLS_ENABLED === "true" || b, E = process.env.VITE_DEV_SERVER_URL, H = i.join(process.env.APP_ROOT, "dist-electron"), F = i.join(process.env.APP_ROOT, "dist");
 process.env.VITE_PUBLIC = E ? i.join(process.env.APP_ROOT, "public") : F;
 let o = null;
 const R = i.join(a.getPath("userData"), "settings.json");
@@ -23,22 +23,22 @@ function C() {
   }
   return {};
 }
-function _(d) {
+function y(d) {
   r.writeFileSync(
     R,
     JSON.stringify(d, null, 2),
     "utf-8"
   );
 }
-const p = C();
-let f = p.downloadFolder ?? i.join(a.getPath("downloads"), "GPT Image Studio"), O = p.filenamePrefix ?? "★";
-const P = /* @__PURE__ */ new Map(), v = /* @__PURE__ */ new Map(), I = !a.isPackaged || process.env.WS_AUDIT_FORCE === "true" || L, x = process.env.PORTABLE_EXECUTABLE_DIR ? i.join(process.env.PORTABLE_EXECUTABLE_DIR, "logs") : i.join(i.dirname(a.getPath("exe")), "logs"), j = i.join(x, "ws-audit.log");
+const w = C();
+let f = w.downloadFolder ?? i.join(a.getPath("downloads"), "GPT Image Studio"), O = w.filenamePrefix ?? "★";
+const P = /* @__PURE__ */ new Map(), v = /* @__PURE__ */ new Map(), I = !a.isPackaged || process.env.WS_AUDIT_FORCE === "true" || b, x = process.env.PORTABLE_EXECUTABLE_DIR ? i.join(process.env.PORTABLE_EXECUTABLE_DIR, "logs") : i.join(i.dirname(a.getPath("exe")), "logs"), j = i.join(x, "ws-audit.log");
 if (I)
   try {
     r.mkdirSync(x, { recursive: !0 });
   } catch {
   }
-function m(d, t, e) {
+function h(d, t, e) {
   if (!I)
     return;
   const n = `[WS-AUDIT][main] ${(/* @__PURE__ */ new Date()).toISOString()} | workspace=${d ?? "unknown"} | event=${t} ${JSON.stringify(e ?? {})}`;
@@ -53,12 +53,12 @@ function D(d) {
   return d.replace(/[\\/:*?"<>|]/g, "_").trim();
 }
 function W(d, t, e) {
-  const n = D(t) || "Untitled", c = D(O), s = D(e), u = `${c}${s}${n}`, w = `${u}.png`;
-  if (!r.existsSync(i.join(d, w)))
-    return w;
-  let h = 2, g = `${u}${h}.png`;
+  const n = D(t) || "Untitled", c = D(O), s = D(e), u = `${c}${s}${n}`, p = `${u}.png`;
+  if (!r.existsSync(i.join(d, p)))
+    return p;
+  let m = 2, g = `${u}${m}.png`;
   for (; r.existsSync(i.join(d, g)); )
-    h++, g = `${u}${h}.png`;
+    m++, g = `${u}${m}.png`;
   return g;
 }
 a.on("second-instance", () => {
@@ -66,7 +66,7 @@ a.on("second-instance", () => {
 });
 a.on("web-contents-created", (d, t) => {
   t.on("will-attach-webview", (e, n) => {
-    n.devTools = b;
+    n.devTools = L;
   });
 });
 function N() {
@@ -84,7 +84,7 @@ function N() {
       nodeIntegration: !1,
       webviewTag: !0,
       sandbox: !0,
-      devTools: b
+      devTools: L
     }
   }), E ? o.loadURL(E) : o.loadFile(i.join(F, "index.html")), o.webContents.setWindowOpenHandler(() => ({
     action: "deny"
@@ -96,7 +96,7 @@ a.whenReady().then(() => {
   ), r.existsSync(f) || r.mkdirSync(f, { recursive: !0 });
   const d = (t, e, n) => {
     const c = v.get(n.id), s = c ? P.get(c) : void 0;
-    m(c, "Download Started", {
+    h(c, "Download Started", {
       webContentsId: n.id,
       pendingArmedFor: (s == null ? void 0 : s.id) ?? null,
       pendingBaseName: (s == null ? void 0 : s.baseName) ?? null
@@ -105,36 +105,36 @@ a.whenReady().then(() => {
       f,
       (s == null ? void 0 : s.baseName) ?? "Untitled",
       (s == null ? void 0 : s.workTypePrefix) ?? ""
-    ), w = i.join(f, u);
-    e.setSavePath(w), m(c, "Save Started", {
+    ), p = i.join(f, u);
+    e.setSavePath(p), h(c, "Save Started", {
       webContentsId: n.id,
-      filePath: w
-    }), e.once("done", (h, g) => {
-      m(c, "Save Completed", {
+      filePath: p
+    }), e.once("done", (m, g) => {
+      h(c, "Save Completed", {
         webContentsId: n.id,
-        filePath: w,
+        filePath: p,
         state: g
       }), o == null || o.webContents.send("image:downloaded", {
         id: (s == null ? void 0 : s.id) ?? null,
-        filePath: g === "completed" ? w : null
+        filePath: g === "completed" ? p : null
       });
     });
   };
   S.defaultSession.on("will-download", d), S.fromPartition("persist:gpt-image-studio").on("will-download", d), l.on(
     "image:armDownload",
     (t, e, n, c) => {
-      P.set(e, { id: e, baseName: n, workTypePrefix: c }), m(e, "Download Armed", { baseName: n, workTypePrefix: c }), t.returnValue = !0;
+      P.set(e, { id: e, baseName: n, workTypePrefix: c }), h(e, "Download Armed", { baseName: n, workTypePrefix: c }), t.returnValue = !0;
     }
   ), l.on(
     "browser:registerWebview",
     (t, e, n) => {
-      v.set(n, e), m(e, "Webview Registered", { webContentsId: n });
+      v.set(n, e), h(e, "Webview Registered", { webContentsId: n });
     }
   ), l.on(
     "browser:unregisterWebview",
     (t, e) => {
       for (const [n, c] of v)
-        c === e && (v.delete(n), m(e, "Webview Unregistered", { webContentsId: n }));
+        c === e && (v.delete(n), h(e, "Webview Unregistered", { webContentsId: n }));
       P.delete(e);
     }
   ), l.on("ws-audit:log", (t, e) => {
@@ -164,24 +164,24 @@ a.whenReady().then(() => {
   ), l.handle("settings:getDownloadFolder", () => f), l.handle("settings:browseDownloadFolder", async () => {
     if (!o)
       return { success: !1 };
-    const t = await y.showOpenDialog(o, {
+    const t = await _.showOpenDialog(o, {
       properties: ["openDirectory", "createDirectory"]
     });
     if (t.canceled || !t.filePaths[0])
       return { success: !1, canceled: !0 };
     const e = t.filePaths[0];
-    return r.existsSync(e) || r.mkdirSync(e, { recursive: !0 }), f = e, p.downloadFolder = e, _(p), { success: !0, folder: e };
-  }), l.handle("settings:getFilenamePrefix", () => O), l.handle("settings:setFilenamePrefix", (t, e) => (O = e, p.filenamePrefix = e, _(p), { success: !0 })), l.handle("settings:openDownloadFolder", async () => {
+    return r.existsSync(e) || r.mkdirSync(e, { recursive: !0 }), f = e, w.downloadFolder = e, y(w), { success: !0, folder: e };
+  }), l.handle("settings:getFilenamePrefix", () => O), l.handle("settings:setFilenamePrefix", (t, e) => (O = e, w.filenamePrefix = e, y(w), { success: !0 })), l.handle("settings:openDownloadFolder", async () => {
     r.existsSync(f) || r.mkdirSync(f, { recursive: !0 });
     const t = await U.openPath(f);
     return { success: t === "", error: t || null };
   }), l.handle(
     "settings:getFirstLaunchNoticeShown",
-    () => !!p.firstLaunchNoticeShown
-  ), l.handle("settings:markFirstLaunchNoticeShown", () => (p.firstLaunchNoticeShown = !0, _(p), { success: !0 })), l.handle("settings:getAppInfo", () => {
+    () => !!w.firstLaunchNoticeShown
+  ), l.handle("settings:markFirstLaunchNoticeShown", () => (w.firstLaunchNoticeShown = !0, y(w), { success: !0 })), l.handle("settings:getAppInfo", () => {
     let t = null;
     try {
-      t = $("git rev-parse --short HEAD", {
+      t = V("git rev-parse --short HEAD", {
         cwd: process.env.APP_ROOT,
         stdio: ["ignore", "pipe", "ignore"]
       }).toString().trim();
@@ -195,20 +195,20 @@ a.whenReady().then(() => {
       gitCommit: t
     };
   }), l.handle(
-    "promptLibrary:export",
+    "backup:export",
     async (t, e) => {
       if (!o)
         return { success: !1 };
-      const n = await y.showSaveDialog(o, {
-        defaultPath: "prompt-library.json",
+      const n = await _.showSaveDialog(o, {
+        defaultPath: "GPT_Image_Studio_Backup.json",
         filters: [{ name: "JSON", extensions: ["json"] }]
       });
       return n.canceled || !n.filePath ? { success: !1, canceled: !0 } : (r.writeFileSync(n.filePath, e, "utf-8"), { success: !0, filePath: n.filePath });
     }
-  ), l.handle("promptLibrary:import", async () => {
+  ), l.handle("backup:import", async () => {
     if (!o)
       return { success: !1 };
-    const t = await y.showOpenDialog(o, {
+    const t = await _.showOpenDialog(o, {
       properties: ["openFile"],
       filters: [{ name: "JSON", extensions: ["json"] }]
     });
@@ -232,7 +232,7 @@ a.on("window-all-closed", () => {
   process.platform !== "darwin" && a.quit();
 });
 export {
-  G as MAIN_DIST,
+  H as MAIN_DIST,
   F as RENDERER_DIST,
   E as VITE_DEV_SERVER_URL
 };

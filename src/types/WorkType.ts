@@ -32,6 +32,22 @@ export interface WorkTypeDraft {
 
 }
 
+/**
+ * Settings > Backup / Restore export/import shape - the `workTypes`
+ * array of the unified backup file (v1.2.0+). Deliberately no `id`
+ * (an imported Work Type is a fresh list entry, not a restored one),
+ * same reasoning as PromptExportItem.
+ */
+export interface WorkTypeExportItem {
+
+    displayName: string;
+
+    filenamePrefix: string;
+
+    enabled: boolean;
+
+}
+
 // ============================================================================
 // End of File
 // ============================================================================

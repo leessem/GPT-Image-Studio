@@ -8,7 +8,7 @@
 // singleton can't trigger a React re-render on its own.
 // ============================================================================
 
-import { WorkType, WorkTypeDraft } from "../types/WorkType";
+import { WorkType, WorkTypeDraft, WorkTypeExportItem } from "../types/WorkType";
 
 const STORAGE_KEY = "gpt-image-studio-work-types";
 
@@ -32,6 +32,27 @@ function isValidWorkType(value: unknown): value is WorkType {
         typeof item.displayName === "string" &&
         typeof item.filenamePrefix === "string" &&
         typeof item.enabled === "boolean"
+    );
+
+}
+
+/**
+ * Settings > Backup / Restore > Import: never trust a file picked off
+ * disk blindly, same reasoning as PromptStore.isValidExportPayload - a
+ * hand-edited or unrelated JSON file must be rejected outright instead
+ * of partially imported.
+ */
+export function isValidExportPayload(value: unknown): value is WorkTypeExportItem[] {
+
+    if (!Array.isArray(value))
+        return false;
+
+    return value.every(entry =>
+        entry &&
+        typeof entry === "object" &&
+        typeof (entry as WorkTypeExportItem).displayName === "string" &&
+        typeof (entry as WorkTypeExportItem).filenamePrefix === "string" &&
+        typeof (entry as WorkTypeExportItem).enabled === "boolean"
     );
 
 }
@@ -165,6 +186,99 @@ class WorkTypeStoreImpl {
     clear(): void {
 
         this.items = [];
+
+        this.persist();
+
+    }
+
+    /**
+     * Settings > Backup / Restore - only displayName/filenamePrefix/
+     * enabled, per the unified backup file's `workTypes` array (no id,
+     * re-assigned fresh on import; see PromptStore.exportPayload for
+     * the same reasoning).
+     */
+    exportPayload(): WorkTypeExportItem[] {
+
+        return this.items.map(({ displayName, filenamePrefix, enabled }) => ({
+            displayName,
+            filenamePrefix,
+            enabled,
+        }));
+
+    }
+
+    /**
+     * Settings > Backup / Restore > Import. Same duplicateStrategy
+     * semantics as PromptStore.importPayload, matched by displayName
+     * instead of title - applies uniformly to every incoming entry
+     * that collides with an existing displayName; non-colliding
+     * incoming entries are always added regardless of strategy.
+     */
+    importPayload(
+        incoming: WorkTypeExportItem[],
+        duplicateStrategy: "replace" | "keep" | "rename"
+    ): void {
+
+        const items = [...this.items];
+
+        for (const entry of incoming) {
+
+            const existingIndex = items.findIndex(
+                item => item.displayName === entry.displayName
+            );
+
+            if (existingIndex === -1) {
+
+                items.push({
+                    id: crypto.randomUUID(),
+                    displayName: entry.displayName,
+                    filenamePrefix: entry.filenamePrefix,
+                    enabled: entry.enabled,
+                });
+
+                continue;
+
+            }
+
+            if (duplicateStrategy === "keep")
+                continue;
+
+            if (duplicateStrategy === "replace") {
+
+                items[existingIndex] = {
+                    ...items[existingIndex],
+                    filenamePrefix: entry.filenamePrefix,
+                    enabled: entry.enabled,
+                };
+
+                continue;
+
+            }
+
+            // rename: keep the existing Work Type untouched, add the
+            // incoming one under a de-duplicated displayName instead.
+            let n = 2;
+
+            let renamedName = `${entry.displayName} (${n})`;
+
+            while (items.some(item => item.displayName === renamedName)) {
+
+                n++;
+
+                renamedName = `${entry.displayName} (${n})`;
+
+            }
+
+            items.push({
+                id: crypto.randomUUID(),
+                displayName: renamedName,
+                filenamePrefix: entry.filenamePrefix,
+                enabled: entry.enabled,
+            });
+
+        }
+
+        this.items = items;
 
         this.persist();
 

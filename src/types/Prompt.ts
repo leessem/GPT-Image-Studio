@@ -16,6 +16,15 @@ export interface PromptItem {
 
     updatedAt: string;
 
+    /**
+     * Prompt Variable feature (v1.2.0): when true, the Workspace panel
+     * shows a "사용자 이름" input above Generate, and every {NAME}
+     * occurrence in `prompt` is substituted with that input's value right
+     * before sending to ChatGPT. Independent of Work Type - Work Type only
+     * ever affects filename generation.
+     */
+    requiresName: boolean;
+
 }
 
 /**
@@ -31,12 +40,16 @@ export interface PromptDraft {
 
     negativePrompt: string;
 
+    requiresName: boolean;
+
 }
 
 /**
  * Settings > Prompt Library Backup export/import shape - deliberately
  * only Title/Prompt/Negative Prompt (no id/timestamps), since an
  * imported prompt is a fresh library entry, not a restored one.
+ * `requiresName` is optional so backups written before v1.2.0 still
+ * import correctly - a missing value is treated as false.
  */
 export interface PromptExportItem {
 
@@ -45,6 +58,8 @@ export interface PromptExportItem {
     prompt: string;
 
     negativePrompt: string;
+
+    requiresName?: boolean;
 
 }
 

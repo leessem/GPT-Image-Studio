@@ -2819,3 +2819,96 @@ file.
 
 **Commit:** "Release Version 1.1.2", tag `v1.1.2`, both pushed to
 `origin/main`.
+
+---
+
+## Session 26 (2026-08-06): Version 1.2.0 - first productivity-focused feature release
+
+Scope for this session, per instruction: two new features (Prompt
+Variable `{NAME}` substitution, unified Prompt Library + Work Type List
+Backup/Restore), then the full release pipeline - no bug fixes, no
+Workspace-architecture/filename-generation changes.
+
+### Prompt Variable system (`{NAME}`)
+
+- `PromptItem`/`PromptDraft` gained `requiresName: boolean`; a new
+  "사용자 이름 입력 필요" checkbox in `PromptModal.tsx` (default
+  unchecked). `PromptStore` migration/validation/create/update/export/
+  import all handle it, normalizing a missing value to `false` for
+  backward compatibility (old localStorage entries and old backup
+  files alike).
+- `Workspace` gained `customerName?: string` (`WorkspaceService.
+  setWorkspaceCustomerName`). `WorkspacePanel` shows a "사용자 이름"
+  field above Generate only when the selected prompt's `requiresName`
+  is true, and disables Generate with "사용자 이름을 입력해주세요."
+  while it's empty - mirrored as a defensive guard in `Workspace.
+  onGenerate`.
+- New `src/utils/promptVariables.ts` (`applyPromptVariables`): replaces
+  every `{NAME}` in the outgoing prompt text, applied in `generate.ts`
+  immediately before `buildPromptScript` - the stored template is
+  never mutated.
+
+### Unified Backup / Restore
+
+- `WorkTypeStore` gained `exportPayload()`/`importPayload()` (Replace/
+  Keep/Rename, matched by `displayName`), `WorkTypeExportItem` type
+  added.
+- `Settings.tsx`: "Prompt Library" section renamed "Backup / Restore".
+  `handleBackup` writes `{ version, prompts, workTypes }` (version =
+  the running app's own version). `handleRestore` distinguishes the
+  new unified shape from a bare-array legacy file (`isUnifiedBackupPayload`
+  requires `version`/`prompts`/`workTypes` all present and valid;
+  anything else falls through to the existing `isValidPromptExportPayload`
+  array check, restoring only the Prompt Library - old backups still
+  work unchanged). One duplicate-count/strategy prompt now covers
+  collisions from either list.
+- `electron/main.ts`/`preload.ts`: export dialog default filename ->
+  `GPT_Image_Studio_Backup.json`; IPC channel renamed
+  `promptLibrary:export/import` -> `backup:export/import` (pure
+  rename, same payload shape).
+
+### Verification
+
+- `npx tsc --noEmit`, `npx eslint . --ext ts,tsx`: clean throughout.
+- Native save/open dialogs can't be driven headlessly, so - same
+  technique as Session 2/3 - bundled the actual shipped
+  `Promptstore.ts`/`WorkTypeStore.ts`/`promptVariables.ts` with esbuild
+  and ran them under Node against an in-memory `localStorage` polyfill:
+  20/20 checks passed, covering `{NAME}` substitution (single/multiple
+  occurrences, no-op with no customerName, template never mutated),
+  full Prompt/WorkType create-update-export-import including all three
+  duplicate strategies, a full unified-backup round-trip into a fresh
+  store, and a legacy bare-array backup importing with `requiresName`
+  correctly normalized to `false`.
+- `npm run dev` launched clean (no console errors) both before and
+  after the `electron/main.ts`/`preload.ts` IPC rename - confirms
+  `dist-electron/main.js`/`preload.mjs` rebuilt correctly from the
+  renamed channels.
+- `git diff --stat` reviewed against the base commit to confirm
+  `buildAutoFilename`, the Work Type filename-prefix logic, every
+  existing `Workspace`/`WorkspaceService` field/function, and
+  `generate.ts`'s pipeline (beyond the one added
+  `applyPromptVariables(...)` wrap) are all untouched.
+- `FORCE_DEBUG_BUILD` confirmed still `false` in both `main.ts`/
+  `preload.ts` before building - WS-AUDIT framework kept in source,
+  inactive by default in the packaged build (`!app.isPackaged` /
+  `import.meta.env.DEV` gates unchanged from v1.1.2).
+
+### Version bump
+
+`package.json` 1.1.2 -> 1.2.0. Updated `CHANGELOG.md` (new 1.2.0
+entry), `README.md` (Prompt Library/Work Type/Settings feature
+descriptions + Release section), `ROADMAP.md` (1.2.0 RELEASED with
+full writeup).
+
+### Build & release
+
+`npm run build` produced `GPT Image Studio v1.2.0 Setup.exe`/
+`Portable.exe`. `Release/` cleaned to exactly those two installers plus
+`README.txt`/`VERSION.txt` (both updated for 1.2.0) and a sample empty
+`GPT_Image_Studio_Backup.json` template - removed any Debug exe, stale
+`logs/`, `win-unpacked/`, `builder-debug.yml`, `latest.yml`, and
+`.blockmap` files, same as every prior release.
+
+**Commit:** "Release Version 1.2.0", tag `v1.2.0`, both pushed to
+`origin/main`.

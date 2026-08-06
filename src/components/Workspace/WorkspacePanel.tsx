@@ -45,6 +45,8 @@ interface WorkspacePanelProps {
 
     onSelectWorkType: (workTypeId: string) => void;
 
+    onSetCustomerName: (customerName: string) => void;
+
     onGenerate: () => void;
 
     onClear: () => void;
@@ -66,6 +68,8 @@ export default function WorkspacePanel({
     onSelectPrompt,
 
     onSelectWorkType,
+
+    onSetCustomerName,
 
     onGenerate,
 
@@ -172,6 +176,19 @@ export default function WorkspacePanel({
         setIsDragging(false);
 
     };
+
+    // ========================================================================
+    // Prompt Variable feature (v1.2.0) - the "사용자 이름" field only
+    // appears for prompts whose Prompt Library entry has requiresName
+    // set, and Generate is blocked while it's required but empty.
+    // Independent of Work Type, which only ever affects filenames.
+    // ========================================================================
+
+    const selectedPrompt = prompts.find(p => p.id === workspace.selectedPromptId);
+
+    const nameRequired = selectedPrompt?.requiresName ?? false;
+
+    const nameMissing = nameRequired && !workspace.customerName?.trim();
 
     return (
 
@@ -348,6 +365,47 @@ export default function WorkspacePanel({
             )}
 
             {/* ---------------------------------------------------------
+                사용자 이름 (Prompt Variable) - only shown for prompts
+                whose Prompt Library entry requires it.
+            ---------------------------------------------------------- */}
+
+            {nameRequired && (
+
+                <div className="workspace-panel-section">
+
+                    <div className="workspace-panel-section-title">
+
+                        사용자 이름
+
+                    </div>
+
+                    <input
+
+                        type="text"
+
+                        className="workspace-customer-name-input"
+
+                        value={workspace.customerName ?? ""}
+
+                        onChange={e => onSetCustomerName(e.target.value)}
+
+                        placeholder="이름을 입력하세요"
+
+                    />
+
+                    {nameMissing && (
+
+                        <span className="workspace-name-required-message">
+                            사용자 이름을 입력해주세요.
+                        </span>
+
+                    )}
+
+                </div>
+
+            )}
+
+            {/* ---------------------------------------------------------
                 Generate / Clear
             ---------------------------------------------------------- */}
 
@@ -359,7 +417,7 @@ export default function WorkspacePanel({
 
                         className="workspace-generate-button"
 
-                        disabled={!workspace.prompt || workspace.status === "running"}
+                        disabled={!workspace.prompt || workspace.status === "running" || nameMissing}
 
                         onClick={onGenerate}
 

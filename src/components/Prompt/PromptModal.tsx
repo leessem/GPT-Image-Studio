@@ -46,6 +46,10 @@ export default function PromptModal({
         initial?.negativePrompt ?? ""
     );
 
+    const [requiresName, setRequiresName] = useState(
+        initial?.requiresName ?? false
+    );
+
     const handleSave = () => {
 
         onSave({
@@ -55,6 +59,8 @@ export default function PromptModal({
             prompt,
 
             negativePrompt,
+
+            requiresName,
 
         });
 
@@ -124,6 +130,22 @@ export default function PromptModal({
                         onChange={e => setNegativePrompt(e.target.value)}
 
                     />
+
+                </label>
+
+                <label className="prompt-modal-checkbox-field">
+
+                    <input
+
+                        type="checkbox"
+
+                        checked={requiresName}
+
+                        onChange={e => setRequiresName(e.target.checked)}
+
+                    />
+
+                    <span>사용자 이름 입력 필요</span>
 
                 </label>
 

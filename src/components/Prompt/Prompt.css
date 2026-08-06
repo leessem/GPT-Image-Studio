@@ -121,6 +121,19 @@
     min-height:70px;
 }
 
+.prompt-modal-checkbox-field{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:13px;
+    color:#222222;
+    cursor:pointer;
+}
+
+.prompt-modal-checkbox-field input{
+    cursor:pointer;
+}
+
 .prompt-modal-actions{
     display:flex;
     gap:8px;

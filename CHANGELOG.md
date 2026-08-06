@@ -2,6 +2,32 @@
 
 All notable changes to GPT Image Studio are documented in this file.
 
+## Version 1.2.0 (2026-08-06)
+
+First productivity-focused feature release.
+
+- **Prompt Variable system using `{NAME}`**: any Prompt Library template
+  can reference `{NAME}`, replaced with a per-Workspace customer name
+  right before the prompt is sent to ChatGPT. The stored template
+  itself is never modified - only the outgoing text is substituted.
+- **Optional "사용자 이름 입력 필요" setting**: a new checkbox on each
+  Prompt Library entry (default unchecked). Existing prompts are
+  unaffected (default `false`) and old Prompt Library backups without
+  this field still import correctly.
+- **Dynamic customer-name substitution**: when a prompt requiring a
+  name is selected, the Workspace panel shows a "사용자 이름" field
+  above Generate; Generate is blocked with "사용자 이름을
+  입력해주세요." while it's empty. Independent of Work Type, which
+  still only affects filename generation.
+- **Prompt + Work Type integrated Backup / Restore**: Settings' Backup
+  / Restore now covers the Prompt Library and the Work Type List
+  together, in one action.
+- **Unified backup file**: exports to `GPT_Image_Studio_Backup.json`,
+  containing `{ version, prompts, workTypes }`.
+- **Legacy backup compatibility**: a pre-1.2.0 Prompt-Library-only
+  backup file (a bare array, no `version`/`workTypes`) still imports
+  correctly - only the Prompt Library is restored, exactly as before.
+
 ## Version 1.1.2 (2026-08-05)
 
 - Fixed production-only Workspace image detection race condition.

@@ -46,13 +46,17 @@ function migrateLegacyPrompt(legacy: LegacyPromptItem): PromptItem {
 
         updatedAt: now,
 
+        requiresName: false,
+
     };
 
 }
 
 /**
  * Never trust localStorage blindly - stale/legacy-shaped data must fall
- * back to a default instead of being used as-is.
+ * back to a default instead of being used as-is. `requiresName` is
+ * checked as optional here - items persisted before v1.2.0 won't have
+ * it yet, and loadPersistedPrompts normalizes that to false afterward.
  */
 function isValidPromptItem(value: unknown): value is PromptItem {
 
@@ -70,7 +74,8 @@ function isValidPromptItem(value: unknown): value is PromptItem {
         typeof item.prompt === "string" &&
         typeof item.negativePrompt === "string" &&
         typeof item.createdAt === "string" &&
-        typeof item.updatedAt === "string"
+        typeof item.updatedAt === "string" &&
+        (item.requiresName === undefined || typeof item.requiresName === "boolean")
     );
 
 }
@@ -91,7 +96,11 @@ export function isValidExportPayload(value: unknown): value is PromptExportItem[
         typeof entry === "object" &&
         typeof (entry as PromptExportItem).title === "string" &&
         typeof (entry as PromptExportItem).prompt === "string" &&
-        typeof (entry as PromptExportItem).negativePrompt === "string"
+        typeof (entry as PromptExportItem).negativePrompt === "string" &&
+        (
+            (entry as PromptExportItem).requiresName === undefined ||
+            typeof (entry as PromptExportItem).requiresName === "boolean"
+        )
     );
 
 }
@@ -113,7 +122,13 @@ function loadPersistedPrompts(): PromptItem[] | null {
         )
             return null;
 
-        return parsed;
+        // Items persisted before v1.2.0 have no requiresName field at
+        // all - normalize those to false here, once, so every other
+        // read site can rely on it always being a real boolean.
+        return parsed.map(item => ({
+            ...item,
+            requiresName: item.requiresName ?? false,
+        }));
 
     }
     catch {
@@ -173,6 +188,8 @@ class PromptStoreImpl {
 
             updatedAt: now,
 
+            requiresName: draft.requiresName,
+
         };
 
         this.items = [...this.items, item];
@@ -204,6 +221,8 @@ class PromptStoreImpl {
                 prompt: draft.prompt,
 
                 negativePrompt: draft.negativePrompt,
+
+                requiresName: draft.requiresName,
 
                 updatedAt: new Date().toISOString(),
 
@@ -248,10 +267,11 @@ class PromptStoreImpl {
      */
     exportPayload(): PromptExportItem[] {
 
-        return this.items.map(({ title, prompt, negativePrompt }) => ({
+        return this.items.map(({ title, prompt, negativePrompt, requiresName }) => ({
             title,
             prompt,
             negativePrompt,
+            requiresName,
         }));
 
     }
@@ -287,6 +307,7 @@ class PromptStoreImpl {
                     title: entry.title,
                     prompt: entry.prompt,
                     negativePrompt: entry.negativePrompt,
+                    requiresName: entry.requiresName ?? false,
                     createdAt: now,
                     updatedAt: now,
                 });
@@ -304,6 +325,7 @@ class PromptStoreImpl {
                     ...items[existingIndex],
                     prompt: entry.prompt,
                     negativePrompt: entry.negativePrompt,
+                    requiresName: entry.requiresName ?? false,
                     updatedAt: now,
                 };
 
@@ -330,6 +352,7 @@ class PromptStoreImpl {
                 title: renamedTitle,
                 prompt: entry.prompt,
                 negativePrompt: entry.negativePrompt,
+                requiresName: entry.requiresName ?? false,
                 createdAt: now,
                 updatedAt: now,
             });

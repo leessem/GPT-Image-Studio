@@ -61,6 +61,15 @@ export interface Workspace {
 
     workTypePrefix?: string;
 
+    /**
+     * Prompt Variable feature (v1.2.0): free-text value substituted for
+     * every {NAME} occurrence in `prompt` right before sending to
+     * ChatGPT. Only relevant when the selected Prompt's requiresName is
+     * true; unrelated to workTypeId/workTypePrefix, which only affect
+     * filename generation.
+     */
+    customerName?: string;
+
 }
 
 export function createWorkspace(): Workspace {

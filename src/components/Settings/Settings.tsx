@@ -13,11 +13,11 @@ import { useEffect, useState } from "react";
 
 import "./Settings.css";
 
-import PromptStore, { isValidExportPayload } from "../../store/Promptstore";
+import PromptStore, { isValidExportPayload as isValidPromptExportPayload } from "../../store/Promptstore";
 import { PromptExportItem } from "../../types/Prompt";
 
-import WorkTypeStore from "../../store/WorkTypeStore";
-import { WorkType, WorkTypeDraft } from "../../types/WorkType";
+import WorkTypeStore, { isValidExportPayload as isValidWorkTypeExportPayload } from "../../store/WorkTypeStore";
+import { WorkType, WorkTypeDraft, WorkTypeExportItem } from "../../types/WorkType";
 
 interface SettingsProps {
 
@@ -60,9 +60,50 @@ type DuplicateStrategy = "replace" | "keep" | "rename";
 
 interface PendingImport {
 
-    items: PromptExportItem[];
+    prompts: PromptExportItem[];
+
+    workTypes: WorkTypeExportItem[] | null;
 
     duplicateCount: number;
+
+}
+
+/**
+ * Unified Backup / Restore file shape (v1.2.0+): Prompt Library + Work
+ * Type List together, tagged with the app version that produced it.
+ * A pre-1.2.0 backup file is a bare PromptExportItem[] with no
+ * envelope at all - isUnifiedBackupPayload only matches the new
+ * shape, so an old file always falls through to
+ * isValidPromptExportPayload in handleRestore below (backward
+ * compatibility: missing `version` or `workTypes` means "assume an
+ * old backup format, restore the Prompt Library only").
+ */
+interface UnifiedBackupPayload {
+
+    version: string;
+
+    prompts: PromptExportItem[];
+
+    workTypes: WorkTypeExportItem[];
+
+}
+
+function isUnifiedBackupPayload(value: unknown): value is UnifiedBackupPayload {
+
+    if (
+        !value ||
+        typeof value !== "object" ||
+        Array.isArray(value)
+    )
+        return false;
+
+    const payload = value as Record<string, unknown>;
+
+    return (
+        typeof payload.version === "string" &&
+        isValidPromptExportPayload(payload.prompts) &&
+        isValidWorkTypeExportPayload(payload.workTypes)
+    );
 
 }
 
@@ -130,11 +171,21 @@ export default function Settings({
 
     };
 
-    const handleBackupPrompts = async () => {
+    const handleBackup = async () => {
 
-        const json = JSON.stringify(PromptStore.exportPayload(), null, 2);
+        const payload: UnifiedBackupPayload = {
 
-        const result = await window.ipcRenderer.promptLibrary.export(json);
+            version: appInfo?.appVersion ?? "1.2.0",
+
+            prompts: PromptStore.exportPayload(),
+
+            workTypes: WorkTypeStore.exportPayload(),
+
+        };
+
+        const json = JSON.stringify(payload, null, 2);
+
+        const result = await window.ipcRenderer.backup.export(json);
 
         if (result.success) {
 
@@ -149,9 +200,9 @@ export default function Settings({
 
     };
 
-    const handleRestorePrompts = async () => {
+    const handleRestore = async () => {
 
-        const result = await window.ipcRenderer.promptLibrary.import();
+        const result = await window.ipcRenderer.backup.import();
 
         if (!result.success) {
 
@@ -162,35 +213,76 @@ export default function Settings({
 
         }
 
-        if (!isValidExportPayload(result.data)) {
+        let incomingPrompts: PromptExportItem[];
 
-            setStatusMessage("That file isn't a valid Prompt Library backup.");
+        let incomingWorkTypes: WorkTypeExportItem[] | null;
+
+        if (isUnifiedBackupPayload(result.data)) {
+
+            incomingPrompts = result.data.prompts;
+
+            incomingWorkTypes = result.data.workTypes;
+
+        }
+        else if (isValidPromptExportPayload(result.data)) {
+
+            // Pre-1.2.0 backup file: a bare Prompt Library array, no
+            // `version`/`workTypes` envelope. Restore the Prompt
+            // Library exactly as before - Work Type List untouched.
+            incomingPrompts = result.data;
+
+            incomingWorkTypes = null;
+
+        }
+        else {
+
+            setStatusMessage("That file isn't a valid backup.");
 
             return;
 
         }
 
-        const existingTitles = new Set(
+        const existingPromptTitles = new Set(
             PromptStore.getAll().map(item => item.title)
         );
 
-        const duplicateCount = result.data.filter(
-            item => existingTitles.has(item.title)
+        const promptDuplicateCount = incomingPrompts.filter(
+            item => existingPromptTitles.has(item.title)
         ).length;
+
+        const existingWorkTypeNames = new Set(
+            WorkTypeStore.getAll().map(item => item.displayName)
+        );
+
+        const workTypeDuplicateCount = incomingWorkTypes
+            ? incomingWorkTypes.filter(item => existingWorkTypeNames.has(item.displayName)).length
+            : 0;
+
+        const duplicateCount = promptDuplicateCount + workTypeDuplicateCount;
 
         if (duplicateCount === 0) {
 
-            PromptStore.importPayload(result.data, "keep");
+            PromptStore.importPayload(incomingPrompts, "keep");
 
             onPromptLibraryChanged();
 
-            setStatusMessage(`Restored ${result.data.length} prompt(s).`);
+            if (incomingWorkTypes) {
+
+                WorkTypeStore.importPayload(incomingWorkTypes, "keep");
+
+                refreshWorkTypes();
+
+            }
+
+            const workTypeNote = incomingWorkTypes ? ` and ${incomingWorkTypes.length} work type(s)` : "";
+
+            setStatusMessage(`Restored ${incomingPrompts.length} prompt(s)${workTypeNote}.`);
 
             return;
 
         }
 
-        setPendingImport({ items: result.data, duplicateCount });
+        setPendingImport({ prompts: incomingPrompts, workTypes: incomingWorkTypes, duplicateCount });
 
     };
 
@@ -199,11 +291,21 @@ export default function Settings({
         if (!pendingImport)
             return;
 
-        PromptStore.importPayload(pendingImport.items, strategy);
+        PromptStore.importPayload(pendingImport.prompts, strategy);
 
         onPromptLibraryChanged();
 
-        setStatusMessage(`Restored ${pendingImport.items.length} prompt(s).`);
+        if (pendingImport.workTypes) {
+
+            WorkTypeStore.importPayload(pendingImport.workTypes, strategy);
+
+            refreshWorkTypes();
+
+        }
+
+        const workTypeNote = pendingImport.workTypes ? ` and ${pendingImport.workTypes.length} work type(s)` : "";
+
+        setStatusMessage(`Restored ${pendingImport.prompts.length} prompt(s)${workTypeNote}.`);
 
         setPendingImport(null);
 
@@ -371,14 +473,15 @@ export default function Settings({
                     <div className="settings-section">
 
                         <div className="settings-section-title">
-                            Duplicate Prompts Found
+                            Duplicate Items Found
                         </div>
 
                         <p className="settings-note">
                             {pendingImport.duplicateCount} of{" "}
-                            {pendingImport.items.length} prompt(s) in this
-                            file share a title with a prompt already in your
-                            library. Choose how to handle them:
+                            {pendingImport.prompts.length + (pendingImport.workTypes?.length ?? 0)}{" "}
+                            item(s) in this file (Prompt Library and/or Work
+                            Type List) share a name with one already saved.
+                            Choose how to handle them:
                         </p>
 
                         <div className="settings-import-choices">
@@ -439,23 +542,30 @@ export default function Settings({
                         </div>
 
                         {/* -------------------------------------------------
-                            2. Prompt Library
+                            2. Backup / Restore (Prompt Library + Work
+                            Type List, unified into one file)
                         -------------------------------------------------- */}
 
                         <div className="settings-section">
 
                             <div className="settings-section-title">
-                                Prompt Library
+                                Backup / Restore
                             </div>
+
+                            <p className="settings-note">
+                                Backs up your Prompt Library and Work Type
+                                List together into one file. Restoring an
+                                older Prompt-Library-only backup still works.
+                            </p>
 
                             <div className="settings-button-row">
 
-                                <button onClick={handleBackupPrompts}>
-                                    Backup Prompts
+                                <button onClick={handleBackup}>
+                                    Backup
                                 </button>
 
-                                <button onClick={handleRestorePrompts}>
-                                    Restore Prompts
+                                <button onClick={handleRestore}>
+                                    Restore
                                 </button>
 
                             </div>

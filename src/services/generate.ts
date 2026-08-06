@@ -11,6 +11,7 @@
 import { Workspace } from "../types/Workspace";
 import { BrowserHandle } from "../components/Browser/Browser";
 import { logWorkspaceEvent } from "../utils/workspaceLogger";
+import { applyPromptVariables } from "../utils/promptVariables";
 import {
     buildPromptScript,
     buildWaitImageScript,
@@ -332,7 +333,7 @@ export async function runGenerate({
 
         const promptResult = await browser.execute(
 
-            buildPromptScript(workspace.prompt)
+            buildPromptScript(applyPromptVariables(workspace.prompt, workspace.customerName))
 
         ) as { success: boolean; step?: string; reason?: string; acceptedBy?: string } | undefined;
 

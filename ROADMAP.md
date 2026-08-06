@@ -1,5 +1,77 @@
 # ROADMAP
 
+## Version 1.2.0 - RELEASED (2026-08-06)
+
+First productivity-focused feature release - no bug fixes, purely new
+capability on top of the stable v1.1.2 base. Two independent additions:
+
+**Prompt Variable system (`{NAME}`):**
+- `PromptItem` gained `requiresName: boolean` (default `false`), set
+  via a new "사용자 이름 입력 필요" checkbox in the Prompt Library
+  editor (`PromptModal.tsx`). Existing prompts and pre-1.2.0 Prompt
+  Library backups without this field normalize to `false` on load/
+  import - fully backward compatible.
+- `Workspace` gained `customerName?: string`. When the selected
+  prompt's `requiresName` is true, `WorkspacePanel` shows a "사용자
+  이름" input directly above Generate; Generate is disabled and
+  "사용자 이름을 입력해주세요." is shown while it's empty (enforced
+  both in the UI and as a defensive guard in `Workspace.onGenerate`).
+- `src/utils/promptVariables.ts` (`applyPromptVariables`) replaces
+  every `{NAME}` occurrence in the outgoing prompt text with the
+  Workspace's `customerName` immediately before `generate.ts` sends it
+  to ChatGPT - the stored Prompt Library template is never mutated, so
+  the same template can be reused for the next customer unchanged.
+- Explicitly independent of Work Type: Work Type continues to affect
+  only filename generation; nothing in `main.ts`'s
+  `buildAutoFilename`/`sanitizeFilenamePart` or the Work Type chip
+  logic was touched.
+
+**Unified Backup / Restore (Prompt Library + Work Type List):**
+- `WorkTypeStore` gained `exportPayload()`/`importPayload()` (same
+  Replace/Keep/Rename duplicate-collision semantics as
+  `PromptStore.importPayload`, matched by `displayName` instead of
+  `title`), plus a `WorkTypeExportItem` type.
+- Settings' "Prompt Library" section became "Backup / Restore":
+  `handleBackup` writes one file, `{ version, prompts, workTypes }`,
+  where `version` is the running app's version; `handleRestore`
+  detects the shape - a `{version, prompts, workTypes}` object
+  restores both, while a bare array (every backup file produced before
+  1.2.0) restores only the Prompt Library, exactly as it always did.
+  A single duplicate-count/strategy prompt now covers collisions from
+  either list in one pass.
+- `electron/main.ts`/`preload.ts`: the export dialog's default
+  filename changed to `GPT_Image_Studio_Backup.json`; the IPC channel
+  was renamed `promptLibrary:export/import` -> `backup:export/import`
+  to match (pure rename, same request/response shape).
+
+**Verification:**
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean.
+- Node-level verification against the actual shipped modules (same
+  esbuild-bundle-and-run-under-Node technique as earlier sessions,
+  necessary here since native save/open dialogs can't be driven
+  headlessly): 20/20 checks passed, covering `{NAME}` substitution
+  (single/multiple occurrences, no-customerName no-op, template never
+  mutated), `PromptStore`/`WorkTypeStore` create/update/export/import
+  including all three duplicate strategies, a full unified-backup
+  round-trip restoring both lists into a fresh store, and a legacy
+  bare-array backup importing correctly with `requiresName` normalized
+  to `false`.
+- `npm run dev` launched clean both before and after the
+  `electron/main.ts`/`preload.ts` IPC rename - no console errors, main/
+  preload rebuilt successfully.
+- `git diff --stat` confirms `buildAutoFilename`, the Work Type
+  filename-prefix logic, the Workspace architecture (`Workspace.ts`'s
+  existing fields, `WorkspaceService.ts`'s existing functions), and
+  the multi-Workspace/auto-save pipeline in `generate.ts` are
+  untouched beyond the one-line `applyPromptVariables(...)` wrap
+  around the outgoing prompt text.
+- WS-AUDIT diagnostic framework left in place, unchanged
+  (`FORCE_DEBUG_BUILD` still `false` in both `main.ts`/`preload.ts`;
+  `!app.isPackaged` / `import.meta.env.DEV` gates unchanged) - inactive
+  in this release's packaged build, same as v1.1.2.
+- Official production installer (`GPT Image Studio v1.2.0 Setup.exe` /
+  `Portable.exe`).
+
 ## Version 1.1.2 - RELEASED (2026-08-05)
 
 P0 fix: the cross-Workspace Error bug that survived v1.1.1's React

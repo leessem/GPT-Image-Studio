@@ -35,18 +35,28 @@ Workspace panel (right) ->  Image upload -> Prompt select -> Work Type
   status, conversation) back to a brand-new state instantly, so the
   next image can start without opening a new tab.
 - **Prompt Library** - saved Title/Prompt/Negative Prompt templates,
-  persisted locally, with Backup/Restore to a `prompt-library.json`
-  file (never overwrites an existing prompt without asking).
+  persisted locally. Any template can be marked "사용자 이름 입력
+  필요" (requires a customer name); when selected, the Workspace panel
+  shows a 사용자 이름 field and every `{NAME}` in that prompt is
+  substituted with it right before sending to ChatGPT (the stored
+  template itself is never changed).
 - **Work Type Management** - user-defined job categories (Settings >
   Work Type Management), shown as compact chips on the Workspace
   panel; at most one selected per tab, and its own filename prefix is
-  automatically folded into the saved filename.
+  automatically folded into the saved filename. Completely independent
+  of the Prompt Variable feature above - Work Type only ever affects
+  filenames.
+- **Backup / Restore** - the Prompt Library and Work Type List back up
+  and restore together, in one `GPT_Image_Studio_Backup.json` file
+  (never overwrites an existing prompt/Work Type without asking on a
+  name collision). A pre-1.2.0 Prompt-Library-only backup file still
+  imports correctly.
 - **Automatic saving** - every generated image downloads and renames
   itself automatically: `{Prefix}{Work Type Prefix?}{Prompt Title}.png`
   the first time that name is used, or `...2.png`, `...3.png`, ... if
   that name already exists. Never overwrites a file.
 - **Settings** - Download Folder (with a dedicated toolbar Open Folder
-  shortcut), Prompt Library Backup/Restore, Work Type Management, the
+  shortcut), unified Backup/Restore, Work Type Management, the
   filename Prefix (with a live Preview), read-only Application
   Information, Maintenance, and Credits.
 - **Maintenance > Reset Application Data** - a single confirmed action
@@ -94,12 +104,12 @@ requires creating symbolic links) - not required for local development
 or for verifying the app itself works, only for producing the final
 `.exe` installer/portable build.
 
-## Release (Version 1.1.2)
+## Release (Version 1.2.0)
 
 `npm run build` produces, in `Release/`:
-- `GPT Image Studio v1.1.2 Setup.exe` - NSIS installer (Desktop +
+- `GPT Image Studio v1.2.0 Setup.exe` - NSIS installer (Desktop +
   Start Menu shortcuts, uninstaller)
-- `GPT Image Studio v1.1.2 Portable.exe` - no install required
+- `GPT Image Studio v1.2.0 Portable.exe` - no install required
 
 ## License
 

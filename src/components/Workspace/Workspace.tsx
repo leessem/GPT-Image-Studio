@@ -40,6 +40,7 @@ import {
     setWorkspacePrompt,
     setWorkspaceWorkType,
     setWorkspaceUploadedImage,
+    setWorkspaceCustomerName,
     clearWorkspace,
 } from "../../services/WorkspaceService";
 
@@ -291,6 +292,13 @@ export default function Workspace() {
             return;
         }
 
+        const selectedPrompt = prompts.find(p => p.id === currentWorkspace.selectedPromptId);
+
+        if (selectedPrompt?.requiresName && !currentWorkspace.customerName?.trim()) {
+            console.warn("[Generate] Aborted: this prompt requires a customer name");
+            return;
+        }
+
         const workspace = currentWorkspace;
 
         const browser = await browserPoolRef.current.ensure(
@@ -450,6 +458,16 @@ export default function Workspace() {
 
     };
 
+    // Prompt Variable feature (v1.2.0) - free-text value substituted for
+    // {NAME} in the selected prompt, independent of Work Type.
+    const onSetCustomerName = (customerName: string) => {
+
+        setWorkspacesLogged("setCustomerName", prev =>
+            setWorkspaceCustomerName(prev, currentWorkspace.id, customerName)
+        );
+
+    };
+
     // ========================================================================
     // Prompt Library (template management only)
     // ========================================================================
@@ -563,6 +581,8 @@ export default function Workspace() {
                     onSelectPrompt={onSelectPrompt}
 
                     onSelectWorkType={onSelectWorkType}
+
+                    onSetCustomerName={onSetCustomerName}
 
                     onGenerate={onGenerate}
 
