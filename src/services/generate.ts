@@ -23,6 +23,7 @@ import {
     buildWaitUploadScript,
     buildEnsureNormalChatInterfaceScript,
     buildWaitComposerReadyScript,
+    buildClearComposerScript,
 } from "../components/Browser/ChatGPT";
 
 const VIEWER_TIMEOUT_MS = 15000;
@@ -342,6 +343,24 @@ export async function runGenerate({
             console.error(
                 `[Generate] FAILED at step "${promptResult?.step}": ${promptResult?.reason ?? "no result"}`
             );
+
+            // Send never happened - never leave whatever got inserted/
+            // pasted sitting in the composer for the next Workspace's
+            // webview to inherit (see buildClearComposerScript's own
+            // comment). Best-effort: a failed clear is logged but never
+            // allowed to override the real error raised below.
+            const clearResult = await browser.execute(
+                buildClearComposerScript()
+            ) as { success: boolean; reason?: string } | undefined;
+
+            if (!clearResult?.success) {
+
+                console.error(
+                    "[Generate] composer clear-after-failure did not complete:",
+                    clearResult?.reason ?? "no result"
+                );
+
+            }
 
             raiseError(promptResult?.step ?? "prompt-send-failed", {
                 detail: promptResult?.reason ?? "no result",

@@ -1,7 +1,7 @@
 {
   "name": "gpt-image-studio",
   "private": true,
-  "version": "1.2.1",
+  "version": "1.2.3",
   "type": "module",
   "author": "leessem",
   "description": "GPT Image Studio - a dedicated ChatGPT Image Generation Studio",

@@ -1,5 +1,138 @@
 # ROADMAP
 
+## Version 1.2.3 - RELEASED (2026-08-07)
+
+Prompt Library modal UX fix. `v1.2.2` was never separately committed or
+tagged (its fixes stayed uncommitted through the investigation below);
+this release consolidates both the v1.2.2 prompt-injection work and
+this version's modal fix into one commit/tag.
+
+- **Fixed the Prompt Library modal closing accidentally during a text-
+  selection drag.** `PromptModal.tsx`'s overlay dismissed on `onClick`,
+  which a browser resolves from the mouseup location, not the mousedown
+  location - so dragging to select text inside a long Prompt field and
+  releasing outside the modal's boundary looked identical to a genuine
+  outside click and closed the modal mid-edit. Fixed by moving the
+  dismiss/stop-propagation pair from `onClick` to `onMouseDown`: the
+  overlay only ever dismisses when the mousedown itself originates on
+  the overlay, so a drag that starts inside the modal can never trigger
+  it regardless of where it's released. No state tracking needed - a
+  structural fix, not a workaround.
+- **Added ESC-to-close** (`useEffect` + a `keydown` listener scoped to
+  the modal's own mounted lifetime) - there was previously no keyboard
+  close path at all, only Save/Cancel.
+- Scope held exactly to the modal: `git diff --stat` confirms only
+  `PromptModal.tsx` changed for this fix. Prompt data, Prompt Variables,
+  Work Types, Backup/Restore, and the Generate pipeline are untouched.
+
+**Verification:**
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean.
+- Live, Playwright-driven UI test (main window only - no ChatGPT
+  webview, no network, no generation triggered) covering all 10
+  required scenarios: drag-select entirely inside, drag started inside
+  and released outside (the reported bug), double-click word selection,
+  triple-click line selection, scroll-while-selecting, a genuine outside
+  click (still closes it), ESC, Save, and Cancel. All 10/10 passed.
+- `npm run build` (full `tsc && vite build && electron-builder`):
+  produced `GPT Image Studio v1.2.3 Setup.exe` / `Portable.exe`.
+
+## Version 1.2.2 - fix complete, folded into v1.2.3 above (2026-08-07)
+
+Regression-fix release. Reported symptom: a prompt appearing in the
+ChatGPT composer at the wrong time (on image select, or on opening a
+new Workspace, before Generate). Investigated via a full static
+execution trace plus a live reproduction (real Electron build, real
+ChatGPT account, driven with Playwright's `_electron`, console/DOM
+state polled every ~400ms through an entire Generate run) before any
+code was changed - see WORKLOG Session 28.
+
+- **The originally reported trigger does not exist.** Static trace
+  found exactly one call path capable of inserting text into ChatGPT's
+  composer (`buildPromptScript`, called only from `runGenerate`, called
+  only from the Generate button's `onClick`), and live testing
+  confirmed zero composer activity from selecting an image, uploading
+  an image, or creating a new Workspace. `Workspace`/`WorkspaceService`
+  state is also confirmed clean per-Workspace (`createWorkspace()`
+  always returns a fresh, unshared object).
+- **The real defect, found during the same live reproduction**: all
+  Workspace webviews share one Electron partition (`persist:gpt-image-
+  studio`, intentional, for one shared ChatGPT login). ChatGPT's own
+  client persists an unsent composer draft in that shared partition
+  storage and restores it on load, independent of this app. Because
+  prompt insertion (`ChatGPT.ts`) only ever pasted new text in without
+  clearing the composer first, that restored leftover draft could
+  survive the paste and be the text actually sent - live-confirmed: a
+  leftover draft from prior manual ChatGPT use was sent and generated
+  in its own style instead of the selected Prompt Library entry's,
+  and after sending, ChatGPT re-populated the composer with the
+  just-sent text, matching the "prompt sitting unsent in the composer"
+  part of the original report.
+- **Fix**: `buildInsertPromptTextSnippet` now clears the composer
+  (select-all + clear via `document.execCommand`, which - like the
+  existing paste-based insert - goes through the real contentEditable
+  editing pipeline ProseMirror's internal model actually listens to,
+  unlike a raw DOM/`innerHTML` mutation) and polls (bounded, no fixed
+  delays) until the composer's `innerText` exactly matches the intended
+  prompt before Send is ever clicked. Applies to both `buildPromptScript`
+  (the live Generate path) and the currently-unused
+  `buildInsertPromptScript`.
+- **A pipeline reorder (prompt-insert before image-upload) was proposed
+  and explicitly rejected** after the live reproduction showed the
+  leftover-draft text is present the instant the composer loads -
+  before upload, before prompt insertion, before anything this app
+  does - so reordering would not have addressed it, and would have
+  discarded the image-preview race-condition guard the v1.0 pass found
+  necessary (upload can pop a preview dialog that must close before
+  prompt insertion). Upload-then-prompt-then-send order is unchanged.
+- No changes to Workspace architecture, Prompt Library, Work Type
+  Management, Backup/Restore, or any UI.
+
+**Verification:**
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean.
+- Live reproduction re-run after the fix (same Playwright-driven real
+  ChatGPT account): the sent message and the resulting generated image
+  both matched the selected Prompt Library entry exactly, with the
+  console log confirming `"[ChatGPT] prompt text inserted and verified,
+  editor.innerText now: <exact intended prompt>"` before Send was
+  clicked.
+- `git diff --stat` confirms the change is scoped to
+  `src/components/Browser/ChatGPT.ts` only - no Workspace, Prompt
+  Library, Work Type, Backup/Restore, or UI files touched.
+
+### Follow-up within the same v1.2.2 investigation (2026-08-07, see WORKLOG Session 29)
+
+A 20-consecutive-generation stress test (later re-scoped down after
+suspected ChatGPT-side rate limiting - see WORKLOG) surfaced a second,
+related defect and one hardening item, both folded into this same
+release:
+
+- **Fixed: the composer-verification step above could false-fail on a
+  real prompt.** It required byte-identical composer content, but
+  ChatGPT's own composer applies Markdown autoformatting to certain
+  pasted lines - a line consisting solely of `---` becomes a horizontal
+  rule, a line consisting solely of `+` becomes an empty list marker -
+  removing them from `editor.innerText` entirely. Live-reproduced with
+  a real user-reported prompt (`original.txt`/`inserted.txt`/unified
+  diff captured): the paste itself was correct, but the exact-match
+  verification rejected it, blocking Send. Fixed by stripping only
+  these exact, narrowly-matched line patterns from a comparison copy
+  before comparing - never from the text actually pasted, and never
+  touching the stored Prompt Library entry. Re-verified clean (isolated
+  insertion-only test, no image/Send) after the fix: same paste result,
+  now correctly accepted.
+- **Hardened the Send-button wait** to also require the button be
+  enabled (`disabled`/`aria-disabled` checked), not just present.
+- **The composer is now cleared on any Send failure** (new
+  `buildClearComposerScript`, called from `generate.ts`'s failure path)
+  so a failed Workspace can never leak its leftover text into the next
+  Workspace via the shared-partition mechanism.
+- **Two separate, pre-existing, out-of-scope issues were found but
+  explicitly NOT fixed** (stress test only, not part of this release):
+  `buildWaitImageScript()` has no timeout (a stalled/undetected
+  generation leaves that Workspace's Generate permanently disabled), and
+  `buildClickDownloadButtonScript()`'s one-shot search can race the
+  viewer dialog's own render. Recorded here for a future release.
+
 ## Version 1.2.1 - RELEASED (2026-08-06)
 
 Feature enhancement release extending v1.2.0's Prompt Variable system

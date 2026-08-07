@@ -6,7 +6,7 @@
 // it. Delete only appears in edit mode and asks for confirmation first.
 // ============================================================================
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { PromptDraft, PromptItem } from "../../types/Prompt";
 
@@ -80,13 +80,45 @@ export default function PromptModal({
 
     };
 
+    // ESC closes the modal the same as Cancel - the only keyboard close
+    // path, added here since none existed before. Bound to the document
+    // for the modal's whole mounted lifetime (it's only ever mounted
+    // while open - see Prompt.tsx's conditional render).
+    useEffect(() => {
+
+        const onKeyDown = (e: KeyboardEvent) => {
+
+            if (e.key === "Escape")
+                onCancel();
+
+        };
+
+        document.addEventListener("keydown", onKeyDown);
+
+        return () => document.removeEventListener("keydown", onKeyDown);
+
+    }, [onCancel]);
+
     return (
 
-        <div className="prompt-modal-overlay" onClick={onCancel}>
+        // Dismissing on the overlay's onClick used to also fire when a
+        // text-selection drag started inside the modal (e.g. selecting
+        // part of a long Prompt) and was released outside it - browsers
+        // resolve a "click" from wherever mouseup lands, not from where
+        // the drag started, so that drag looked identical to a genuine
+        // outside click and closed the modal, discarding in-progress
+        // edits. Tracking mousedown's own origin instead of click fixes
+        // this structurally: a drag that starts inside .prompt-modal
+        // never lets its mousedown reach this overlay's handler at all
+        // (stopped at the modal's own boundary below), regardless of
+        // where the mouseup/drag-release ends up - only a mousedown that
+        // itself originates on the overlay (a genuine outside click) can
+        // ever dismiss it.
+        <div className="prompt-modal-overlay" onMouseDown={onCancel}>
 
             <div
                 className="prompt-modal"
-                onClick={e => e.stopPropagation()}
+                onMouseDown={e => e.stopPropagation()}
             >
 
                 <div className="prompt-modal-title">

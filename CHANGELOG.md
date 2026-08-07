@@ -2,6 +2,103 @@
 
 All notable changes to GPT Image Studio are documented in this file.
 
+## Version 1.2.3 (2026-08-07)
+
+Prompt Library modal UX fix - production release. Consolidates this
+version with the previously-uncommitted v1.2.2 prompt-injection work
+below (v1.2.2 was never separately tagged/released - both land in this
+one release).
+
+- **Fixed: the Prompt Library modal could close accidentally mid-edit.**
+  Dragging to select text inside a long Prompt or Negative Prompt field
+  and releasing the mouse outside the modal's boundary closed the modal
+  and discarded the in-progress edit. Root cause: the modal's outside-
+  dismiss handler used the overlay's `onClick`, but a browser resolves
+  a `click` event from wherever the mouse is released, not from where
+  the drag started - so a selection drag that started inside the modal
+  and ended outside was indistinguishable from a genuine outside click.
+- Fixed by tracking `onMouseDown` origin instead of `onClick`: the
+  overlay only dismisses when a mousedown itself originates on the
+  overlay (a real outside click); a mousedown that starts inside the
+  modal has its propagation stopped at the modal's own boundary and can
+  never reach the overlay's handler, regardless of where the drag/mouse-
+  up ends up. No selection-tracking, drag-state flags, or timers needed.
+- **Added ESC-to-close** - the modal previously had no keyboard close
+  path at all; Save and Cancel were the only ways to close it. ESC now
+  closes it the same as Cancel.
+- Verified (drag-select entirely inside, drag started inside and
+  released outside, double-click word selection, triple-click line
+  selection, scroll-while-selecting, genuine outside click, ESC, Save,
+  Cancel): all pass. No changes to Prompt data, Prompt Variables, Work
+  Types, Backup/Restore, or the Generate pipeline - only
+  `PromptModal.tsx`.
+
+## Version 1.2.2 (2026-08-07)
+
+Regression fix release. A "prompt injection at the wrong time" report was
+investigated end-to-end; the specific scenario reported (image select /
+Workspace creation triggering injection) could not be reproduced and was
+ruled out, but the investigation surfaced a real, related defect in the
+same area, which is what this release fixes.
+
+- **Fixed: a stale/leftover composer draft could be sent to ChatGPT
+  instead of the selected Prompt.** All Workspace webviews intentionally
+  share one Electron partition (`persist:gpt-image-studio`, for one
+  shared ChatGPT login - see `Browser.tsx`). ChatGPT's own client
+  persists an unsent composer draft in that shared storage and restores
+  it whenever a chat view loads, independent of and before anything this
+  app does. Prompt insertion only ever pasted the intended text in
+  without first clearing the composer, so a leftover draft (from prior
+  manual ChatGPT use in that same browser profile, or from ChatGPT
+  re-populating the composer with the just-sent message afterward) could
+  survive the paste untouched and be the text actually submitted -
+  live-reproduced against a real ChatGPT account: the leftover draft's
+  image style was generated instead of the selected Prompt Library
+  entry's, confirmed by inspecting both the sent message and the
+  resulting generated image.
+- **Ruled out via live reproduction** (real Electron app, real ChatGPT
+  account, step-by-step console/DOM tracing): Workspace state leakage
+  between tabs, image-upload triggering injection, and Workspace
+  creation triggering injection. None occur - Workspace isolation and
+  the Generate-button-only injection gate were already correct and are
+  unchanged by this release.
+- `buildInsertPromptTextSnippet` (`ChatGPT.ts`) now clears the composer
+  (select-all + clear, through the same native contentEditable editing
+  pipeline ProseMirror already listens to for the paste-based insert)
+  and polls until the composer's content exactly matches the intended
+  prompt before Send is ever clicked - a state-based, delay-free
+  verification step, consistent with the rest of the automation
+  pipeline's existing poll-for-observable-state approach. Applies to
+  both `buildPromptScript` (Generate) and the currently-unused
+  `buildInsertPromptScript`.
+- Upload-before-prompt pipeline order is unchanged (reversing it was
+  considered and rejected - the leftover-draft defect is present before
+  either step runs, and the existing order is required by the
+  image-preview race-condition guard from the v1.0 verification pass).
+- **Fixed a false-failure in that same verification**: it originally
+  required byte-identical composer content, but ChatGPT's own composer
+  applies Markdown autoformatting to certain pasted lines (a line
+  consisting solely of `---` becomes a horizontal rule, a line
+  consisting solely of `+` becomes an empty list marker), silently
+  removing them from `editor.innerText` - expected editor behavior, not
+  data loss, but enough to fail a byte-exact check and block Send
+  entirely for any prompt containing such a line, live-reproduced with a
+  real user-reported prompt. Verification now strips only these exact,
+  narrowly-matched line patterns from a comparison copy before
+  whitespace-normalized comparison - never from the pasted text itself,
+  and never anywhere near the stored Prompt Library entry. Any other
+  difference (wrong content, a leftover leaked draft) still fails
+  verification exactly as before.
+- Send button wait now also requires the button to be enabled
+  (`disabled`/`aria-disabled` both checked), not just present, before
+  clicking it - defense-in-depth alongside the verification fix above.
+- If prompt insertion or Send fails for any reason, the composer is now
+  explicitly cleared before the Workspace is marked Error, so a failed
+  attempt's leftover text can never leak into the next Workspace via the
+  shared-partition mechanism above.
+- No changes to Workspace architecture, Prompt Library, Work Type,
+  Backup/Restore, or any UI.
+
 ## Version 1.2.1 (2026-08-06)
 
 Feature enhancement release extending the v1.2.0 Prompt Variable system.

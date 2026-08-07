@@ -2,50 +2,202 @@ function buildInsertPromptTextSnippet(prompt: string) {
   return `
   const text = ${JSON.stringify(prompt)};
 
-  const editor = document.querySelector("#prompt-textarea");
+  // ProseMirror renders each paragraph as its own block element, and a
+  // contentEditable's innerText pads every block boundary with its own
+  // newline - confirmed live: a source prompt with blank-line-separated
+  // paragraphs (e.g. a "prompt / Negative prompt:" template) came back
+  // from editor.innerText with MORE newlines at every paragraph break
+  // than the original text had (3 in a row became 8). That's ProseMirror's
+  // own DOM serialization, not a sign the paste lost or corrupted
+  // anything, so comparing raw strings for exact equality would time out
+  // and fail on every multi-paragraph prompt. Collapse all whitespace
+  // runs before comparing - still catches a genuinely wrong/missing/
+  // leftover-mixed-in prompt (the actual words and their order must still
+  // match), just ignores how many newlines/spaces ended up between them.
+  const normalizeForCompare = (value) => value.replace(/\\s+/g, " ").trim();
 
-  if (!editor) {
-    console.error("[ChatGPT] #prompt-textarea not found");
-    return {
-      success: false,
-      step: "textarea-not-found",
-      reason: "prompt-textarea not found"
+  // ChatGPT's own composer applies Markdown autoformatting to certain
+  // pasted lines, converting them into structural elements instead of
+  // literal text - confirmed live (see WORKLOG Session 29): a line
+  // consisting solely of "---" became a horizontal-rule element, and a
+  // line consisting solely of "+" became an empty list-item marker,
+  // both vanishing from editor.innerText entirely (not reformatted,
+  // gone). That's ChatGPT's own editor behavior on ANY pasted text
+  // matching these patterns, not something this app's paste triggers or
+  // could avoid - the same transform would happen from a real Ctrl+V of
+  // the same text. Verification only ever strips these EXACT, narrowly-
+  // matched line patterns from a comparison COPY - never from \`text\`
+  // itself (what's actually pasted) and never anywhere near the stored
+  // Prompt Library entry, which this function never touches. Every
+  // other difference (wrong words, missing content, a leftover draft)
+  // still fails verification exactly as before.
+  const stripKnownMarkdownAutoformatLines = (value) =>
+    value
+      .split("\\n")
+      .filter((line) => {
+        const trimmed = line.trim();
+        // CommonMark thematic break (horizontal rule): 3+ of the same
+        // character among -, *, _ and nothing else on the line.
+        // "---" is the one confirmed live; *** and ___ follow the same
+        // documented rule ChatGPT's paste-markdown parser evidently
+        // implements.
+        const isHorizontalRule = /^(-{3,}|\\*{3,}|_{3,})$/.test(trimmed);
+        // A bare list-bullet character with no content after it -
+        // "+" is the one confirmed live; "-" and "*" are the other two
+        // valid CommonMark unordered-list markers.
+        const isEmptyListMarker = /^[-+*]$/.test(trimmed);
+        return !(isHorizontalRule || isEmptyListMarker);
+      })
+      .join("\\n");
+
+  // Clears the composer, pastes in this Workspace's own prompt, and
+  // verifies the composer contains that text - tolerating ChatGPT's own
+  // known Markdown autoformat transforms above, but nothing else -
+  // before calling done({success:true}). Never assumes the paste worked.
+  const insertPromptText = (done) => {
+
+    const editor = document.querySelector("#prompt-textarea");
+
+    if (!editor) {
+      console.error("[ChatGPT] #prompt-textarea not found");
+      done({
+        success: false,
+        step: "textarea-not-found",
+        reason: "prompt-textarea not found"
+      });
+      return;
+    }
+
+    console.log("[ChatGPT] #prompt-textarea found");
+
+    editor.focus();
+
+    // The composer can already contain leftover text that has nothing to
+    // do with this Workspace's own prompt - all Workspace webviews share
+    // one Electron partition for one shared login (see Browser.tsx), and
+    // ChatGPT persists an unsent composer draft in that same shared
+    // storage, restoring it on load independently of anything this app
+    // does. Confirmed live: without clearing first, that leftover draft
+    // survived the paste below completely untouched and was the text
+    // actually sent to ChatGPT instead of this Workspace's real prompt.
+    // Select-all + insertText("") goes through the same native
+    // contentEditable editing pipeline as the paste below (unlike a raw
+    // DOM mutation - see the comment on the paste itself), so
+    // ProseMirror's internal model is actually cleared, not just what's
+    // visible in the DOM.
+    document.execCommand("selectAll", false, undefined);
+    document.execCommand("insertText", false, "");
+
+    const clearTimeoutMs = 2000;
+    const clearPollMs = 50;
+    const clearStartedAt = Date.now();
+
+    const waitForClear = () => {
+
+      if (editor.innerText.trim() === "") {
+        pasteText();
+        return;
+      }
+
+      if (Date.now() - clearStartedAt > clearTimeoutMs) {
+        console.error("[ChatGPT] composer did not clear within timeout", {
+          remainingText: editor.innerText
+        });
+        done({
+          success: false,
+          step: "composer-clear-failed",
+          reason: "composer still contained leftover text after clearing"
+        });
+        return;
+      }
+
+      setTimeout(waitForClear, clearPollMs);
+
     };
-  }
 
-  console.log("[ChatGPT] #prompt-textarea found");
+    const pasteText = () => {
 
-  editor.focus();
+      // Manually mutating the DOM (innerHTML + a synthetic beforeinput/
+      // input InputEvent) was tried first, but confirmed live to be a
+      // false success: it makes the composer visibly show the text and
+      // even makes ChatGPT's own send button appear/enable, but
+      // ChatGPT's rich-text editor (ProseMirror) never registers the
+      // change in its own internal document model - a synthetic
+      // InputEvent carries no real getTargetRanges() data for it to
+      // read. The message that actually gets submitted on Send is read
+      // from that internal model, not the DOM, so it went out empty
+      // every time (confirmed by inspecting the real sent message, not
+      // just the composer's DOM). A simulated paste event runs through
+      // ProseMirror's real paste-handling pipeline instead, which does
+      // update its internal model correctly - confirmed live: the
+      // resulting sent message contains the real text.
+      const dataTransfer = new DataTransfer();
 
-  // Manually mutating the DOM (innerHTML + a synthetic beforeinput/input
-  // InputEvent) was tried first, but confirmed live to be a false
-  // success: it makes the composer visibly show the text and even makes
-  // ChatGPT's own send button appear/enable, but ChatGPT's rich-text
-  // editor (ProseMirror) never registers the change in its own internal
-  // document model - a synthetic InputEvent carries no real
-  // getTargetRanges() data for it to read. The message that actually
-  // gets submitted on Send is read from that internal model, not the
-  // DOM, so it went out empty every time (confirmed by inspecting the
-  // real sent message, not just the composer's DOM). A simulated paste
-  // event runs through ProseMirror's real paste-handling pipeline
-  // instead, which does update its internal model correctly - confirmed
-  // live: the resulting sent message contains the real text.
-  const dataTransfer = new DataTransfer();
+      dataTransfer.setData("text/plain", text);
 
-  dataTransfer.setData("text/plain", text);
+      const pasteEvent = new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: dataTransfer
+      });
 
-  const pasteEvent = new ClipboardEvent("paste", {
-    bubbles: true,
-    cancelable: true,
-    clipboardData: dataTransfer
-  });
+      editor.dispatchEvent(pasteEvent);
 
-  editor.dispatchEvent(pasteEvent);
+      // The paste's effect on ProseMirror's model (and so on
+      // editor.innerText) is not synchronous with dispatchEvent -
+      // confirmed live: reading editor.innerText immediately after
+      // dispatch still showed the pre-paste content. Poll for the
+      // observable result instead of trusting the dispatch returned.
+      const verifyTimeoutMs = 3000;
+      const verifyPollMs = 50;
+      const verifyStartedAt = Date.now();
 
-  console.log(
-    "[ChatGPT] prompt text inserted into editor via paste event, editor.innerText now:",
-    editor.innerText
-  );
+      // Computed once, outside the poll loop - it's a pure function of
+      // \`text\`, never of editor.innerText, so it never changes between
+      // polls.
+      const expectedForCompare = normalizeForCompare(
+        stripKnownMarkdownAutoformatLines(text)
+      );
+
+      const waitForVerified = () => {
+
+        if (
+          editor.innerText.trim() !== "" &&
+          normalizeForCompare(editor.innerText) === expectedForCompare
+        ) {
+          console.log(
+            "[ChatGPT] prompt text inserted and verified, editor.innerText now:",
+            editor.innerText
+          );
+          done({ success: true, step: "inserted" });
+          return;
+        }
+
+        if (Date.now() - verifyStartedAt > verifyTimeoutMs) {
+          console.error("[ChatGPT] composer did not match the intended prompt after paste", {
+            expected: text,
+            expectedForCompare,
+            actual: editor.innerText
+          });
+          done({
+            success: false,
+            step: "prompt-verification-failed",
+            reason: "composer content did not match the intended prompt after paste"
+          });
+          return;
+        }
+
+        setTimeout(waitForVerified, verifyPollMs);
+
+      };
+
+      waitForVerified();
+
+    };
+
+    waitForClear();
+
+  };
 `;
 }
 
@@ -55,10 +207,9 @@ export function buildInsertPromptScript(prompt: string) {
 
   console.log("[ChatGPT] buildInsertPromptScript executing");
 ${buildInsertPromptTextSnippet(prompt)}
-  return {
-    success: true,
-    step: "inserted"
-  };
+  return new Promise((resolve) => {
+    insertPromptText(resolve);
+  });
 
 })();
 `;
@@ -174,14 +325,36 @@ ${buildInsertPromptTextSnippet(prompt)}
 
         const sendButton = document.querySelector(sendButtonSelector);
 
-        if (!sendButton) {
+        // A present-but-disabled button (native disabled attribute, or
+        // ChatGPT's own aria-disabled while it's still settling the
+        // just-attached image) silently no-ops a real click - wait for
+        // BOTH existing and enabled, same bounded poll as the
+        // not-found case below, before ever clicking it.
+        const isDisabled =
+          sendButton &&
+          (
+            sendButton.disabled ||
+            sendButton.getAttribute("aria-disabled") === "true"
+          );
+
+        if (!sendButton || isDisabled) {
 
           if (Date.now() - buttonWaitStartedAt > buttonWaitMs) {
-            console.error("[ChatGPT] #composer-submit-button not found (attempt " + attempt + ")");
+
+            const reason = sendButton
+              ? "send button found but stayed disabled"
+              : "send button not found";
+
+            console.error(
+              "[ChatGPT] #composer-submit-button " +
+              (sendButton ? "disabled" : "not found") +
+              " (attempt " + attempt + ")"
+            );
+
             resolve({
               success: false,
-              step: "send-button-not-found",
-              reason: "send button not found"
+              step: sendButton ? "send-button-disabled" : "send-button-not-found",
+              reason
             });
             return;
           }
@@ -244,7 +417,16 @@ ${buildInsertPromptTextSnippet(prompt)}
 
     };
 
-    attemptSend();
+    insertPromptText((insertResult) => {
+
+      if (!insertResult.success) {
+        resolve(insertResult);
+        return;
+      }
+
+      attemptSend();
+
+    });
 
   });
 
@@ -1045,6 +1227,70 @@ export function buildEnsureNormalChatInterfaceScript() {
       console.log("[ChatGPT] [Step 6.5/10] OK - preview closed, normal chat interface active again");
 
       resolve({ success: true, wasOpen: true });
+
+    };
+
+    check();
+
+  });
+
+})();
+`;
+}
+
+// ============================================================================
+// If prompt insertion or Send failed for any reason (composer never
+// cleared, paste never verified, send button never enabled, message
+// never accepted), whatever text ended up in the composer must never be
+// left sitting there. All Workspace webviews share one Electron
+// partition (see Browser.tsx), and ChatGPT itself persists an unsent
+// composer draft in that same shared storage, restoring it on load
+// independently of anything this app does - a failed Workspace's
+// leftover draft would otherwise leak into the next Workspace/webview
+// that loads a chat view (confirmed live - see WORKLOG Session 28).
+// Called from generate.ts only on the failure path, best-effort - never
+// allowed to override or block the real error already being raised.
+// ============================================================================
+
+export function buildClearComposerScript() {
+  return `
+(() => {
+
+  return new Promise((resolve) => {
+
+    const editor = document.querySelector("#prompt-textarea");
+
+    if (!editor) {
+      resolve({ success: false, reason: "prompt-textarea not found" });
+      return;
+    }
+
+    editor.focus();
+
+    document.execCommand("selectAll", false, undefined);
+    document.execCommand("insertText", false, "");
+
+    const timeoutMs = 2000;
+    const pollMs = 50;
+    const startedAt = Date.now();
+
+    const check = () => {
+
+      if (editor.innerText.trim() === "") {
+        console.log("[ChatGPT] composer cleared after failed send");
+        resolve({ success: true });
+        return;
+      }
+
+      if (Date.now() - startedAt > timeoutMs) {
+        console.error("[ChatGPT] composer did not clear after failed send", {
+          remainingText: editor.innerText
+        });
+        resolve({ success: false, reason: "composer did not clear after failed send" });
+        return;
+      }
+
+      setTimeout(check, pollMs);
 
     };
 
