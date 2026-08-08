@@ -2,6 +2,53 @@
 
 All notable changes to GPT Image Studio are documented in this file.
 
+## Version 1.2.4 (2026-08-08)
+
+Debug Build release. Adds a permanent, Settings-toggleable "Debug Mode"
+that records forensic detail for every Generate run and lets it be
+exported as a single ZIP, then fixes a real bug in that exporter found
+via live testing of this same release.
+
+- **Added Debug Mode** (Settings toggle, off by default, works in dev
+  and packaged builds alike). While on, every Generate attempt writes a
+  self-contained session folder (`DebugLogs/<sessionId>/`) containing:
+  pipeline stage log with timings, the exact original/substituted
+  prompt plus a diff against what the composer read back, before/after
+  Workspace JSON snapshots, before/after screenshots of the ChatGPT
+  webview, the composer's own HTML/text, and a DOM-mutation observer
+  log - "everything needed to diagnose a failure" without asking a user
+  to gather files by hand.
+- **Added a floating Debug Window** showing the live state of the
+  in-progress run (stage, Workspace, Prompt, elapsed time, last error)
+  plus an **Export Diagnostics** button that zips the most recent
+  session folder to a location of the user's choosing.
+- **Fixed: Export Diagnostics could silently produce a 0-byte ZIP and
+  still report success.** The output write stream's own `error` event
+  was never handled (only the archiver's was) - a failed write still
+  emitted `close` right after, resolving the export as successful. Both
+  streams' errors are now handled, a zero-length result is treated as a
+  failure explicitly, and a failed export cleans up its own stray/
+  locked file instead of leaving one behind.
+- **Fixed: even after that, an export failure showed no real reason.**
+  The actual error only ever went to the (invisible, in a packaged
+  build) main-process console. The Debug Window now shows the real
+  error message, error code, output path, and stack trace, and every
+  failure is additionally written to `DebugLogs/export-error.txt`.
+- **Fixed the real, underlying export bug this surfaced:** `archiver`'s
+  CJS default export was being imported as `import * as archiverModule`
+  and cast directly to a callable type - at runtime this compiles
+  (Vite/esbuild's CJS interop) to a non-callable merged-namespace
+  object, so every export attempt since the feature was written threw
+  `TypeError: archiver is not a function` synchronously, previously
+  swallowed by the outer `try/catch`. Fixed to use the module's actual
+  `.default` export. Live-verified in the real packaged Debug build
+  against a real session: produced a 6.96 MB ZIP containing all 14
+  diagnostic files, opened cleanly.
+- No changes to Prompt Library, Prompt Variables, Work Types, Backup/
+  Restore, or the Generate/Image pipeline itself - Debug Mode is
+  observational only, and every debug call site no-ops entirely with
+  zero disk I/O when the setting is off.
+
 ## Version 1.2.3 (2026-08-07)
 
 Prompt Library modal UX fix - production release. Consolidates this

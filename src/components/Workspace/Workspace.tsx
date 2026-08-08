@@ -28,6 +28,14 @@ import {
     logWorkspaceStateDiff,
     logClobberConfirmed,
 } from "../../utils/workspaceLogger";
+import {
+    initDebugLogger,
+    subscribeDebugMode,
+    startDebugSession,
+    setDebugPanelContext,
+    logPipelineStage,
+} from "../../utils/debugLogger";
+import DebugWindow from "../DebugWindow/DebugWindow";
 
 import PromptStore from "../../store/Promptstore";
 import WorkTypeStore from "../../store/WorkTypeStore";
@@ -268,6 +276,24 @@ export default function Workspace() {
     };
 
     // ========================================================================
+    // Version 1.2.3 Debug Build - initializes debugLogger.ts's cached
+    // flag once on mount, same IPC-on-mount pattern as First Launch
+    // Notice above. Settings.tsx calls initDebugLogger itself the moment
+    // the checkbox changes, so toggling takes effect immediately without
+    // this component needing to re-fetch or re-render.
+    // ========================================================================
+
+    const [debugMode, setDebugMode] = useState(false);
+
+    useEffect(() => {
+
+        window.ipcRenderer.settings.getDebugMode().then(initDebugLogger);
+
+        return subscribeDebugMode(setDebugMode);
+
+    }, []);
+
+    // ========================================================================
     // Generate
     //
     // Generation state (isGenerating/isDownloading, both folded into
@@ -307,6 +333,19 @@ export default function Workspace() {
 
         const workspace = currentWorkspace;
 
+        // Version 1.2.3 Debug Build: minted here (after every guard
+        // above has already passed - a click that gets aborted by one
+        // of them was never a real Generate attempt, so it shouldn't
+        // get its own DebugLogs/ session folder), not inside
+        // runGenerate, so this literal "Generate Click" stage - the
+        // pipeline's first - lands in the same session folder as
+        // everything runGenerate itself goes on to log.
+        const debugSessionId = startDebugSession(workspace.id);
+
+        setDebugPanelContext(workspace.name, selectedPrompt?.title ?? null);
+
+        logPipelineStage(debugSessionId, workspace.id, "Generate Click");
+
         const browser = await browserPoolRef.current.ensure(
             workspace.id,
             workspace.conversationUrl
@@ -317,6 +356,8 @@ export default function Workspace() {
             browser,
 
             workspace,
+
+            debugSessionId,
 
             onUpdate: updater =>
                 setWorkspacesLogged("generate:onUpdate", prev => updateWorkspace(prev, workspace.id, updater)),
@@ -609,6 +650,8 @@ export default function Workspace() {
                 />
 
             </div>
+
+            {debugMode && <DebugWindow />}
 
         </div>
 

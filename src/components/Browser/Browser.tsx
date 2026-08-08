@@ -18,6 +18,7 @@ import {
   useState,
 } from "react";
 import "./Browser.css";
+import { logDomEvent } from "../../utils/debugLogger";
 
 export const CHATGPT_HOME_URL = "https://chatgpt.com/";
 
@@ -171,6 +172,26 @@ const BrowserPool = forwardRef<BrowserPoolHandle, BrowserPoolProps>(
           return;
 
         wiredWorkspaceIds.current.add(workspaceId);
+
+        // Version 1.2.3 Debug Build: the ChatGPT <webview> guest page has
+        // no access to this app's window.ipcRenderer (preload is only
+        // injected into the main app window), so a MutationObserver
+        // running inside it (see ChatGPT.ts's buildAttachDomObserverScript)
+        // can only reach dom.log via console.log + this native webview
+        // DOM event. logDomEvent itself already no-ops immediately when
+        // Debug Mode is off, and buildAttachDomObserverScript is only
+        // ever invoked (from generate.ts) when Debug Mode is on, so this
+        // listener sees zero "[DOM-LOG]" lines at all when the feature is
+        // off - filtering every other console line the guest page emits
+        // is the only always-on cost, and it's a single string check.
+        el.addEventListener("console-message", (event) => {
+
+          if (!event.message.startsWith("[DOM-LOG]"))
+            return;
+
+          logDomEvent(workspaceId, event.message);
+
+        });
 
         const onDomReady = () => {
 

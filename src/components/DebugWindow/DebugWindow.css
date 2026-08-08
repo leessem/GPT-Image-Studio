@@ -1,0 +1,135 @@
+.debug-window {
+
+    position: fixed;
+
+    right: 16px;
+
+    bottom: 16px;
+
+    z-index: 9999;
+
+    width: 280px;
+
+    padding: 12px 14px;
+
+    background: rgba(20, 20, 24, 0.92);
+
+    border: 1px solid rgba(255, 255, 255, 0.15);
+
+    border-radius: 8px;
+
+    color: #e6e6e6;
+
+    font-family: "Consolas", "Menlo", monospace;
+
+    font-size: 12px;
+
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+
+    pointer-events: auto;
+
+}
+
+.debug-window-title {
+
+    font-weight: 700;
+
+    font-size: 12px;
+
+    letter-spacing: 0.05em;
+
+    text-transform: uppercase;
+
+    color: #9ad1ff;
+
+    margin-bottom: 8px;
+
+}
+
+.debug-window-row {
+
+    display: flex;
+
+    justify-content: space-between;
+
+    gap: 8px;
+
+    padding: 2px 0;
+
+}
+
+.debug-window-row span {
+
+    color: #9a9a9a;
+
+    flex-shrink: 0;
+
+}
+
+.debug-window-row code {
+
+    color: #e6e6e6;
+
+    text-align: right;
+
+    overflow: hidden;
+
+    text-overflow: ellipsis;
+
+    white-space: nowrap;
+
+}
+
+.debug-window-error-row code {
+
+    color: #ff8a8a;
+
+}
+
+.debug-window-export {
+
+    margin-top: 10px;
+
+    width: 100%;
+
+    padding: 6px 8px;
+
+    background: #2a2a30;
+
+    color: #e6e6e6;
+
+    border: 1px solid rgba(255, 255, 255, 0.15);
+
+    border-radius: 4px;
+
+    font-family: inherit;
+
+    font-size: 12px;
+
+    cursor: pointer;
+
+}
+
+.debug-window-export:hover {
+
+    background: #34343c;
+
+}
+
+.debug-window-status {
+
+    margin-top: 6px;
+
+    font-size: 11px;
+
+    color: #9a9a9a;
+
+    word-break: break-all;
+
+    white-space: pre-wrap;
+
+    max-height: 240px;
+
+    overflow-y: auto;
+
+}

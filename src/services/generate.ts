@@ -24,7 +24,18 @@ import {
     buildEnsureNormalChatInterfaceScript,
     buildWaitComposerReadyScript,
     buildClearComposerScript,
+    buildAttachDomObserverScript,
+    buildCaptureComposerSnapshotScript,
 } from "../components/Browser/ChatGPT";
+import {
+    isDebugModeEnabled,
+    logPipelineStage,
+    savePromptData,
+    saveWorkspaceSnapshot,
+    saveComposerSnapshot,
+    captureError,
+    captureScreenshot,
+} from "../utils/debugLogger";
 
 const VIEWER_TIMEOUT_MS = 15000;
 const DOWNLOAD_EVENT_TIMEOUT_MS = 15000;
@@ -119,6 +130,14 @@ export interface GenerateOptions {
 
     onUpdate: (updater: (workspace: Workspace) => Workspace) => void;
 
+    // Version 1.2.3 Debug Build: minted by Workspace.tsx's onGenerate
+    // (via debugLogger.ts's startDebugSession) right at "Generate Click",
+    // BEFORE runGenerate is even called - so that stage, logged from
+    // onGenerate itself, lands in the same DebugLogs/<sessionId>/ folder
+    // as everything runGenerate goes on to log. null when Debug Mode is
+    // off; every debugLogger.ts call already no-ops on a null session.
+    debugSessionId: string | null;
+
     onStart?: () => void;
 
     onFinish?: () => void;
@@ -135,6 +154,8 @@ export async function runGenerate({
 
     onUpdate,
 
+    debugSessionId,
+
     onStart,
 
     onFinish,
@@ -149,6 +170,8 @@ export async function runGenerate({
         webContentsId: browser.getWebContentsId(),
         conversationUrl: workspace.conversationUrl,
     });
+
+    saveWorkspaceSnapshot(debugSessionId, "before", JSON.stringify(workspace));
 
     // TEMPORARY (V1.1 Workspace-isolation audit): every status:"error"
     // transition below goes through this one place so it always logs
@@ -169,7 +192,59 @@ export async function runGenerate({
             ...extra,
         });
 
-        onUpdate(w => ({ ...w, status: "error" }));
+        // Full forensic snapshot on any pipeline failure, Debug Mode
+        // only. Fire-and-forget (never awaited) so a slow/failed capture
+        // can never delay or block the status update below -
+        // captureErrorForensics swallows every failure of its own
+        // internally (see debugLogger.ts). Logging continues after this -
+        // nothing here stops the pipeline.
+        if (isDebugModeEnabled()) {
+            void captureErrorForensics(reason, extra);
+        }
+
+        onUpdate(w => {
+
+            const updated: Workspace = { ...w, status: "error" };
+
+            saveWorkspaceSnapshot(debugSessionId, "after", JSON.stringify(updated));
+
+            return updated;
+
+        });
+
+    };
+
+    const captureErrorForensics = async (
+        reason: string,
+        extra?: Record<string, unknown>
+    ) => {
+
+        try {
+
+            const snapshot = await browser.execute(
+                buildCaptureComposerSnapshotScript()
+            ) as { composerHtml: string | null; composerText: string | null } | undefined;
+
+            saveComposerSnapshot(debugSessionId, {
+                html: snapshot?.composerHtml ?? null,
+                text: snapshot?.composerText ?? null,
+            });
+
+            captureError({
+                sessionId: debugSessionId,
+                workspaceId: workspace.id,
+                stage: reason,
+                reason: typeof extra?.detail === "string" ? extra.detail : reason,
+                exception: extra,
+            });
+
+            captureScreenshot(debugSessionId, workspace.id, "after_send");
+
+        }
+        catch {
+            // best-effort - forensic capture must never affect the real
+            // error already being raised above
+        }
 
     };
 
@@ -206,6 +281,21 @@ export async function runGenerate({
 
         console.log("[Generate] OK - ChatGPT composer ready");
 
+        logPipelineStage(debugSessionId, workspace.id, "Workspace Ready");
+
+        logPipelineStage(debugSessionId, workspace.id, "Prompt Selected", {
+            selectedPromptId: workspace.selectedPromptId ?? null,
+            promptName: workspace.name,
+        });
+
+        // Debug Mode only - purely observational (see ChatGPT.ts's own
+        // comment on this script), attached once per Generate run right
+        // after the composer is confirmed ready, before anything else
+        // touches it.
+        if (isDebugModeEnabled()) {
+            await browser.execute(buildAttachDomObserverScript());
+        }
+
         // =====================================================================
         // 2. Upload the Workspace's image into ChatGPT, then wait for it to
         //    complete (skipped entirely when no image is attached).
@@ -216,6 +306,8 @@ export async function runGenerate({
             logWorkspaceEvent(workspace.id, "Upload Start", {
                 webContentsId: browser.getWebContentsId(),
             });
+
+            logPipelineStage(debugSessionId, workspace.id, "Image Upload Start");
 
             const uploadResult = await browser.execute(
 
@@ -287,6 +379,8 @@ export async function runGenerate({
                 webContentsId: browser.getWebContentsId(),
             });
 
+            logPipelineStage(debugSessionId, workspace.id, "Image Upload Complete");
+
             console.log("[Generate] OK - upload completed");
 
             // =================================================================
@@ -332,11 +426,90 @@ export async function runGenerate({
 
         console.log("[Generate] inserting prompt + clicking send");
 
+        const substitutedPrompt = applyPromptVariables(
+            workspace.prompt,
+            workspace.customerName,
+            workspace.customerNumber
+        );
+
+        logPipelineStage(debugSessionId, workspace.id, "Variables Applied", {
+            customerName: workspace.customerName ?? null,
+            customerNumber: workspace.customerNumber ?? null,
+        });
+
+        logPipelineStage(debugSessionId, workspace.id, "Prompt Insert Start");
+
+        captureScreenshot(debugSessionId, workspace.id, "before_send");
+
         const promptResult = await browser.execute(
 
-            buildPromptScript(applyPromptVariables(workspace.prompt, workspace.customerName, workspace.customerNumber))
+            buildPromptScript(substitutedPrompt)
 
-        ) as { success: boolean; step?: string; reason?: string; acceptedBy?: string } | undefined;
+        ) as {
+            success: boolean;
+            step?: string;
+            reason?: string;
+            acceptedBy?: string;
+            timeline?: {
+                clearedAt?: number | null;
+                pastedAt?: number | null;
+                verificationStartedAt?: number | null;
+                verifiedAt?: number | null;
+                sendButtonFoundAt?: number | null;
+                sendEnabledAt?: number | null;
+                sendClickedAt?: number | null;
+                acceptedAt?: number | null;
+            };
+        } | undefined;
+
+        captureScreenshot(debugSessionId, workspace.id, "after_send");
+
+        if (promptResult?.timeline) {
+
+            const t = promptResult.timeline;
+
+            if (t.pastedAt)
+                logPipelineStage(debugSessionId, workspace.id, "Prompt Insert Complete", { at: t.pastedAt });
+
+            if (t.verificationStartedAt)
+                logPipelineStage(debugSessionId, workspace.id, "Prompt Verification Start", { at: t.verificationStartedAt });
+
+            if (t.verifiedAt)
+                logPipelineStage(debugSessionId, workspace.id, "Prompt Verification Pass", { at: t.verifiedAt });
+
+            if (t.sendButtonFoundAt)
+                logPipelineStage(debugSessionId, workspace.id, "Send Button Found", { at: t.sendButtonFoundAt });
+
+            if (t.sendEnabledAt)
+                logPipelineStage(debugSessionId, workspace.id, "Send Button Enabled", { at: t.sendEnabledAt });
+
+            if (t.sendClickedAt)
+                logPipelineStage(debugSessionId, workspace.id, "Send Click", { at: t.sendClickedAt });
+
+        }
+
+        if (isDebugModeEnabled()) {
+
+            const composerSnapshot = await browser.execute(
+                buildCaptureComposerSnapshotScript()
+            ) as { composerHtml: string | null; composerText: string | null } | undefined;
+
+            saveComposerSnapshot(debugSessionId, {
+                html: composerSnapshot?.composerHtml ?? null,
+                text: composerSnapshot?.composerText ?? null,
+            });
+
+            savePromptData({
+                sessionId: debugSessionId,
+                workspaceId: workspace.id,
+                promptName: workspace.name,
+                promptId: workspace.selectedPromptId ?? "",
+                original: workspace.prompt,
+                substituted: substitutedPrompt,
+                composerReadback: composerSnapshot?.composerText ?? "",
+            });
+
+        }
 
         if (!promptResult?.success) {
 
@@ -388,6 +561,8 @@ export async function runGenerate({
                     `[Generate] Captured conversation URL for workspace ${workspace.id}: ${conversationUrl}`
                 );
 
+                logPipelineStage(debugSessionId, workspace.id, "Conversation Started", { conversationUrl });
+
                 onUpdate(w => ({ ...w, conversationUrl }));
 
             }
@@ -422,6 +597,8 @@ export async function runGenerate({
         }
 
         console.log("[Generate] image generation detected");
+
+        logPipelineStage(debugSessionId, workspace.id, "Image Detection");
 
         // =====================================================================
         // 5. Open the generated image, download it
@@ -479,6 +656,8 @@ export async function runGenerate({
             workTypePrefix: workspace.workTypePrefix ?? "",
         });
 
+        logPipelineStage(debugSessionId, workspace.id, "Download Start");
+
         window.ipcRenderer.image.armDownload(
             workspace.id,
             baseFileName(workspace.name),
@@ -520,6 +699,8 @@ export async function runGenerate({
                 imagePath,
             });
 
+            logPipelineStage(debugSessionId, workspace.id, "Download Complete", { imagePath });
+
         }
         catch (err) {
 
@@ -550,6 +731,8 @@ export async function runGenerate({
             size: verifyResult.size,
         });
 
+        logPipelineStage(debugSessionId, workspace.id, "Save Complete", { imagePath, size: verifyResult.size });
+
         console.log(`[Generate] file verified on disk (${verifyResult.size} bytes): ${imagePath}`);
 
         // =====================================================================
@@ -576,17 +759,25 @@ export async function runGenerate({
 
         }
 
-        onUpdate(w => ({
+        onUpdate(w => {
 
-            ...w,
+            const updated: Workspace = {
 
-            status: "done",
+                ...w,
 
-            imagePath,
+                status: "done",
 
-            completedAt: new Date().toISOString(),
+                imagePath,
 
-        }));
+                completedAt: new Date().toISOString(),
+
+            };
+
+            saveWorkspaceSnapshot(debugSessionId, "after", JSON.stringify(updated));
+
+            return updated;
+
+        });
 
         logWorkspaceEvent(workspace.id, "Generate Complete", {
             webContentsId: browser.getWebContentsId(),
@@ -612,6 +803,8 @@ export async function runGenerate({
                 : w
         ));
 
+        logPipelineStage(debugSessionId, workspace.id, "Workspace Ready");
+
     }
 
     catch (err) {
@@ -625,7 +818,32 @@ export async function runGenerate({
             conversationUrl: workspace.conversationUrl,
         });
 
-        onUpdate(w => (w.status === "running" ? { ...w, status: "error" } : w));
+        if (isDebugModeEnabled()) {
+
+            captureError({
+                sessionId: debugSessionId,
+                workspaceId: workspace.id,
+                stage: "uncaught-exception",
+                reason: String(err),
+                exception: err,
+            });
+
+            captureScreenshot(debugSessionId, workspace.id, "after_send");
+
+        }
+
+        onUpdate(w => {
+
+            if (w.status !== "running")
+                return w;
+
+            const updated: Workspace = { ...w, status: "error" };
+
+            saveWorkspaceSnapshot(debugSessionId, "after", JSON.stringify(updated));
+
+            return updated;
+
+        });
 
         onError?.(err);
 

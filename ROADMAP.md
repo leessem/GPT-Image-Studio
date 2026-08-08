@@ -1,5 +1,49 @@
 # ROADMAP
 
+## Version 1.2.4 - RELEASED (2026-08-08)
+
+Debug Build release: a permanent, Settings-toggleable forensic logging
+system for the Generate pipeline (`DebugLogs/<sessionId>/` - pipeline
+stage log, prompt/diff, before-after Workspace snapshots, before/after
+screenshots, composer HTML/text, DOM-mutation log), a floating Debug
+Window, and an Export Diagnostics button that zips a session to a
+user-chosen location.
+
+- **Regression found and fixed in the exporter itself**, via this same
+  session's own live testing: Export Diagnostics could produce a
+  0-byte ZIP while reporting success (write stream's own `error` event
+  was unhandled), then - once that was fixed to report failure
+  honestly - still gave no real reason why. Fixed both, plus added
+  `DebugLogs/export-error.txt` and a Debug Window error panel showing
+  the actual message/code/path/stack.
+- **Root cause of the export failure itself, found only after the above
+  visibility fix:** `archiver`'s CJS module was imported via
+  `import * as archiverModule` and cast to a callable type - under
+  Vite/esbuild's CJS interop this compiles to a non-callable namespace
+  object, so every export attempt had been throwing
+  `TypeError: archiver is not a function` since the feature was
+  written, silently caught by the outer `try/catch`. Fixed to use the
+  real `.default` export.
+- Scope held to the exporter: `electron/main.ts`'s
+  `debug:exportDiagnostics` handler, `electron/preload.ts`'s matching
+  type, and `DebugWindow.tsx`'s failure display. No Prompt/Generate/
+  Image/Workspace pipeline code touched.
+
+**Verification:**
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean.
+- Live test against the real packaged Debug build (not a standalone
+  script): triggered the real `debug:exportDiagnostics` IPC handler in
+  the running app against a real, on-disk debug session. First run (pre-
+  fix) reproduced and captured the exact `archiver is not a function`
+  failure with full message/stack. Second run (post-fix): `success:
+  true`, resulting ZIP verified to exist, be non-zero (6,959,363 bytes),
+  open cleanly, and contain all 14 expected diagnostic files.
+- `npm run build` (full `tsc && vite build && electron-builder`):
+  produced `GPT Image Studio v1.2.4 Setup.exe` / `Portable.exe`, plus a
+  separate one-off `FORCE_DEBUG_BUILD=true` packaged build for internal
+  diagnostics use (DevTools + WS-AUDIT + Debug Mode on by default in a
+  packaged build - never the default release configuration).
+
 ## Version 1.2.3 - RELEASED (2026-08-07)
 
 Prompt Library modal UX fix. `v1.2.2` was never separately committed or

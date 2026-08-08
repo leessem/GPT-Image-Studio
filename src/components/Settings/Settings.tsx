@@ -18,6 +18,7 @@ import { PromptExportItem } from "../../types/Prompt";
 
 import WorkTypeStore, { isValidExportPayload as isValidWorkTypeExportPayload } from "../../store/WorkTypeStore";
 import { WorkType, WorkTypeDraft, WorkTypeExportItem } from "../../types/WorkType";
+import { initDebugLogger } from "../../utils/debugLogger";
 
 interface SettingsProps {
 
@@ -139,6 +140,10 @@ export default function Settings({
 
     const [workTypeForm, setWorkTypeForm] = useState<WorkTypeFormState | null>(null);
 
+    const [debugMode, setDebugModeState] = useState(false);
+
+    const [debugLogsPath, setDebugLogsPath] = useState<string | null>(null);
+
     useEffect(() => {
 
         window.ipcRenderer.settings.getDownloadFolder().then(setDownloadFolder);
@@ -147,7 +152,24 @@ export default function Settings({
 
         window.ipcRenderer.settings.getAppInfo().then(setAppInfo);
 
+        window.ipcRenderer.settings.getDebugMode().then(setDebugModeState);
+
+        window.ipcRenderer.settings.getDebugLogsPath().then(setDebugLogsPath);
+
     }, []);
+
+    // Persists immediately and re-initializes debugLogger.ts's cached
+    // flag in the SAME tick, so toggling takes effect right away without
+    // needing Workspace.tsx to re-fetch or the app to restart.
+    const handleDebugModeChange = (value: boolean) => {
+
+        setDebugModeState(value);
+
+        window.ipcRenderer.settings.setDebugMode(value);
+
+        initDebugLogger(value);
+
+    };
 
     const handlePrefixChange = (value: string) => {
 
@@ -768,6 +790,51 @@ export default function Settings({
                                 {sanitizeForPreview(filenamePrefix)}만삭Portrait2.png,{" "}
                                 {sanitizeForPreview(filenamePrefix)}만삭Portrait3.png.
                             </p>
+
+                        </div>
+
+                        {/* -------------------------------------------------
+                            Debug Mode (Version 1.2.3 Debug Build) - off by
+                            default, does not affect production behavior at
+                            all when unchecked (see debugLogger.ts / main.ts).
+                        -------------------------------------------------- */}
+
+                        <div className="settings-section">
+
+                            <div className="settings-section-title">
+                                Debug Mode
+                            </div>
+
+                            <label className="settings-worktype-row">
+
+                                <input
+
+                                    type="checkbox"
+
+                                    checked={debugMode}
+
+                                    onChange={e => handleDebugModeChange(e.target.checked)}
+
+                                />
+
+                                <span>
+                                    Record a detailed diagnostic log of every Generate run
+                                </span>
+
+                            </label>
+
+                            <p className="settings-note">
+                                When on, a new timestamped folder is saved
+                                under Debug Logs for every Generate attempt
+                                (pipeline timing, the exact Prompt sent, DOM
+                                activity, and - on failure - a full snapshot).
+                                No effect on Generate itself either way.
+                            </p>
+
+                            <div className="settings-readonly-row">
+                                <span>Debug Logs</span>
+                                <code>{debugLogsPath ?? "—"}</code>
+                            </div>
 
                         </div>
 

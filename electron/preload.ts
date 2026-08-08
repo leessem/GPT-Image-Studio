@@ -136,6 +136,18 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
 
     getAppInfo() {
       return ipcRenderer.invoke("settings:getAppInfo");
+    },
+
+    getDebugMode() {
+      return ipcRenderer.invoke("settings:getDebugMode");
+    },
+
+    setDebugMode(enabled: boolean) {
+      return ipcRenderer.invoke("settings:setDebugMode", enabled);
+    },
+
+    getDebugLogsPath() {
+      return ipcRenderer.invoke("settings:getDebugLogsPath");
     }
   },
 
@@ -150,6 +162,56 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
 
     import() {
       return ipcRenderer.invoke("backup:import");
+    }
+  },
+
+  // ==========================
+  // Debug API (Version 1.2.3 Debug Build - forensic Generate-pipeline
+  // logging, gated end-to-end by Settings > Debug Mode)
+  // ==========================
+
+  debug: {
+    log(sessionId: string, file: string, line: string) {
+      ipcRenderer.send("debug:log", sessionId, file, line);
+    },
+
+    savePromptData(payload: {
+      sessionId: string;
+      workspaceId: string;
+      promptName: string;
+      promptId: string;
+      original: string;
+      substituted: string;
+      composerReadback: string;
+    }) {
+      return ipcRenderer.invoke("debug:savePromptData", payload);
+    },
+
+    saveWorkspaceSnapshot(sessionId: string, phase: "before" | "after", workspaceJson: string) {
+      return ipcRenderer.invoke("debug:saveWorkspaceSnapshot", sessionId, phase, workspaceJson);
+    },
+
+    saveComposerSnapshot(sessionId: string, payload: { html: string | null; text: string | null }) {
+      return ipcRenderer.invoke("debug:saveComposerSnapshot", sessionId, payload);
+    },
+
+    captureError(payload: {
+      sessionId: string;
+      workspaceId: string;
+      stage: string;
+      reason: string;
+      exception: string | null;
+      stack: string | null;
+    }) {
+      return ipcRenderer.invoke("debug:captureError", payload);
+    },
+
+    screenshot(sessionId: string, workspaceId: string, phase: "before_send" | "after_send") {
+      return ipcRenderer.invoke("debug:screenshot", sessionId, workspaceId, phase);
+    },
+
+    exportDiagnostics(sessionId: string) {
+      return ipcRenderer.invoke("debug:exportDiagnostics", sessionId);
     }
   }
 });
@@ -207,6 +269,12 @@ declare global {
           nodeVersion: string;
           gitCommit: string | null;
         }>;
+
+        getDebugMode(): Promise<boolean>;
+
+        setDebugMode(enabled: boolean): Promise<{ success: boolean }>;
+
+        getDebugLogsPath(): Promise<string>;
       };
 
       backup: {
@@ -218,6 +286,64 @@ declare global {
         import(): Promise<
           | { success: true; data: unknown }
           | { success: false; canceled?: boolean; error?: string }
+        >;
+      };
+
+      debug: {
+        log(sessionId: string, file: string, line: string): void;
+
+        savePromptData(payload: {
+          sessionId: string;
+          workspaceId: string;
+          promptName: string;
+          promptId: string;
+          original: string;
+          substituted: string;
+          composerReadback: string;
+        }): Promise<
+          | { success: true; sha256: string }
+          | { success: false; error?: string }
+        >;
+
+        saveWorkspaceSnapshot(
+          sessionId: string,
+          phase: "before" | "after",
+          workspaceJson: string
+        ): Promise<{ success: boolean; error?: string }>;
+
+        saveComposerSnapshot(
+          sessionId: string,
+          payload: { html: string | null; text: string | null }
+        ): Promise<{ success: boolean; error?: string }>;
+
+        captureError(payload: {
+          sessionId: string;
+          workspaceId: string;
+          stage: string;
+          reason: string;
+          exception: string | null;
+          stack: string | null;
+        }): Promise<{ success: boolean; error?: string }>;
+
+        screenshot(
+          sessionId: string,
+          workspaceId: string,
+          phase: "before_send" | "after_send"
+        ): Promise<
+          | { success: true; filePath: string }
+          | { success: false; error?: string }
+        >;
+
+        exportDiagnostics(sessionId: string): Promise<
+          | { success: true; filePath: string }
+          | {
+            success: false;
+            canceled?: boolean;
+            error?: string;
+            code?: string | null;
+            stack?: string | null;
+            path?: string;
+          }
         >;
       };
     };

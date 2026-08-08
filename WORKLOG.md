@@ -3279,6 +3279,125 @@ evidence only, per instruction.
 
 ---
 
+## Session 31 (2026-08-08): Version 1.2.4 - Debug Build feature + Export Diagnostics fix, production release
+
+### Scope
+
+The Version 1.2.3 Debug Build feature (`src/utils/debugLogger.ts`,
+`src/components/DebugWindow/`, the `debug:*` IPC handlers in
+`electron/main.ts`, and the matching `generate.ts`/`ChatGPT.ts`/
+`Browser.tsx` call sites that feed it) had been sitting uncommitted in
+the working tree since before this session - written and labeled
+"Version 1.2.3" but never actually part of the v1.2.3 release/tag. This
+session finished, fixed, verified, and released it as v1.2.4 instead
+(see "Version numbering" below for why).
+
+### Bug #1: Export Diagnostics could report success on a 0-byte ZIP
+
+The output write stream's own `error` event was never handled - only
+the archiver's was. When opening the chosen save path failed, the
+write stream still emitted `close` right after its `error`, which
+resolved the export's Promise as if the ZIP had actually been written,
+producing a real 0-byte `.zip` on disk with a false `success: true`.
+Fixed: both streams' `error` events are handled, and a zero-length
+result is now treated as an explicit failure rather than trusted
+implicitly. A failed export also now destroys the write stream and
+deletes the stray/locked file it left behind, instead of leaving one
+on disk.
+
+### Bug #2: even once failures were reported honestly, no real reason was ever shown
+
+The actual underlying error only ever went to `console.error` in the
+main process - invisible in a packaged build, and never surfaced to
+the Debug Window or persisted anywhere. Fixed: every failure path now
+captures `message`/`code` (`err.code`, e.g. `ENOENT`/`EPERM`/`EBUSY`)/
+`stack`/`path` into one `ExportFailureDetails` shape, shown in the
+Debug Window exactly as `Export failed: / Error code: / Path: /
+Stack:`, and additionally written to `DebugLogs/export-error.txt`
+(overwritten on each new failure). Also: `archive.finalize()`'s
+returned promise is now `.catch()`'d (previously fire-and-forget), and
+an `ENOENT` archiver `warning` (its default treatment for a source
+file it can't stat) is now promoted to a real failure instead of being
+silently swallowed - a missing source file inside the session folder
+would otherwise have produced an incomplete ZIP still reported as
+success.
+
+### Bug #3 (the actual root cause, found only after Bug #2's fix made it visible)
+
+Live-testing the app after fixing bug #2 immediately surfaced the real
+failure every export had been hitting since the feature was written:
+`TypeError: archiver is not a function`. `electron/main.ts` imported
+archiver as `import * as archiverModule from "archiver"` and cast the
+whole namespace to a callable type (`as unknown as ArchiverFactory`) -
+a compile-time-only lie. Confirmed directly in the compiled bundle:
+`import * as ns` of archiver's CJS export compiles (Vite/esbuild's CJS
+interop) to a merged namespace *object*
+(`_mergeNamespaces({default: index, ...}, [archiver$1])`), never
+callable itself - only `.default` (the real `archiver$1`/`vending`
+function) is. Fixed to
+`(archiverModule as unknown as { default: ArchiverFactory }).default`.
+
+### Verification
+
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean, every pass.
+- Standalone fixture test (fs + archiver only, no Electron) before
+  live testing: a known-good 2-file session produced a real, openable
+  307-byte ZIP; a forced `ENOENT` (nonexistent parent dir) correctly
+  surfaced `message`/`code: "ENOENT"`/`stack`/`path` with no stray file
+  left behind.
+- **Live test against the real, running Debug build** (not a mock):
+  temporarily added a `--remote-debugging-port` `onstart` hook to
+  `vite.config.ts` (reverted after), launched `npm run dev`, and drove
+  the actual `debug:exportDiagnostics` IPC handler via CDP
+  (`window.ipcRenderer.debug.exportDiagnostics(sessionId)`) against a
+  real, pre-existing on-disk debug session - the exact same code path
+  the Debug Window's own button calls. First run (pre-Bug-#3-fix)
+  reproduced and captured the real `archiver is not a function` error
+  with full stack. After the fix and a rebuild: `success: true`,
+  resulting ZIP verified via `unzip -l` to be 6,959,363 bytes and
+  contain all 14 expected diagnostic files. Repeated once more on a
+  fresh build immediately before release for final confirmation - same
+  result.
+- Scope confirmed via `git diff`: only the exporter's own code path
+  (`electron/main.ts`'s `debug:exportDiagnostics` handler,
+  `electron/preload.ts`'s matching type, `DebugWindow.tsx`'s failure
+  display) changed for bugs #1-#3. No Prompt/Generate/Image/Workspace
+  pipeline code touched.
+
+### Version numbering
+
+`v1.2.3` was already tagged and pushed to `origin/main` (an earlier,
+smaller release - the Prompt Library modal fix from Session 30) before
+this Debug Build work existed in any commit. Re-tagging a new commit
+`v1.2.3` would have required force-moving an already-published tag -
+flagged to the user as a destructive, hard-to-reverse operation on
+shared state rather than done silently; user chose a clean `v1.2.4`
+instead. `package.json` 1.2.3 -> 1.2.4; `CHANGELOG.md`/`ROADMAP.md`
+get their own new v1.2.4 entries (the "Version 1.2.3 Debug Build" code
+comments throughout the feature predate this decision and describe
+when it was written, not what it shipped as).
+
+### Build & release
+
+`npm run build` (`tsc && vite build && electron-builder`) produced
+`GPT Image Studio v1.2.4 Setup.exe` / `Portable.exe`. `Release/`
+cleaned to exactly those two installers plus `README.txt`/
+`VERSION.txt` (both updated for 1.2.4) and the sample
+`GPT_Image_Studio_Backup.json` template - removed `builder-debug.yml`,
+`.blockmap`, `win-unpacked/`, a stray runtime `logs/` folder left over
+from a prior portable-exe test run, the prior v1.2.3 installers, and a
+pre-existing (pre-fix) one-off `GPT Image Studio Debug.exe` from an
+earlier session. A fresh one-off `FORCE_DEBUG_BUILD=true` packaged
+debug build was produced separately per the existing `main.ts` pattern
+(DevTools + WS-AUDIT + Debug Mode default-on in a packaged build) -
+`FORCE_DEBUG_BUILD` reverted to `false` immediately after, never
+committed as `true`.
+
+**Commit:** "Release Version 1.2.4", tag `v1.2.4`, both pushed to
+`origin/main`.
+
+---
+
 ## Session 30 (2026-08-07): Version 1.2.3 - Prompt Library modal UX fix + production release
 
 ### Bug

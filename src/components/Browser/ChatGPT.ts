@@ -56,6 +56,14 @@ function buildInsertPromptTextSnippet(prompt: string) {
   // before calling done({success:true}). Never assumes the paste worked.
   const insertPromptText = (done) => {
 
+    // Version 1.2.3 Debug Build: pure instrumentation, never read by
+    // any success/failure decision below - just timestamps forwarded
+    // on done() so pipeline.log can show real Prompt Insert Complete /
+    // Prompt Verification timings when Debug Mode is on.
+    let clearedAt = null;
+    let pastedAt = null;
+    let verifiedAt = null;
+
     const editor = document.querySelector("#prompt-textarea");
 
     if (!editor) {
@@ -95,6 +103,7 @@ function buildInsertPromptTextSnippet(prompt: string) {
     const waitForClear = () => {
 
       if (editor.innerText.trim() === "") {
+        clearedAt = Date.now();
         pasteText();
         return;
       }
@@ -106,7 +115,8 @@ function buildInsertPromptTextSnippet(prompt: string) {
         done({
           success: false,
           step: "composer-clear-failed",
-          reason: "composer still contained leftover text after clearing"
+          reason: "composer still contained leftover text after clearing",
+          timeline: { clearedAt, pastedAt, verifiedAt }
         });
         return;
       }
@@ -143,6 +153,8 @@ function buildInsertPromptTextSnippet(prompt: string) {
 
       editor.dispatchEvent(pasteEvent);
 
+      pastedAt = Date.now();
+
       // The paste's effect on ProseMirror's model (and so on
       // editor.innerText) is not synchronous with dispatchEvent -
       // confirmed live: reading editor.innerText immediately after
@@ -165,11 +177,16 @@ function buildInsertPromptTextSnippet(prompt: string) {
           editor.innerText.trim() !== "" &&
           normalizeForCompare(editor.innerText) === expectedForCompare
         ) {
+          verifiedAt = Date.now();
           console.log(
             "[ChatGPT] prompt text inserted and verified, editor.innerText now:",
             editor.innerText
           );
-          done({ success: true, step: "inserted" });
+          done({
+            success: true,
+            step: "inserted",
+            timeline: { clearedAt, pastedAt, verificationStartedAt: verifyStartedAt, verifiedAt }
+          });
           return;
         }
 
@@ -182,7 +199,8 @@ function buildInsertPromptTextSnippet(prompt: string) {
           done({
             success: false,
             step: "prompt-verification-failed",
-            reason: "composer content did not match the intended prompt after paste"
+            reason: "composer content did not match the intended prompt after paste",
+            timeline: { clearedAt, pastedAt, verificationStartedAt: verifyStartedAt, verifiedAt }
           });
           return;
         }
@@ -242,6 +260,15 @@ ${buildInsertPromptTextSnippet(prompt)}
     const buttonWaitMs = 5000;
     const acceptWaitMs = 3000;
     const pollMs = 50;
+
+    // Version 1.2.3 Debug Build: pure instrumentation - overwritten on
+    // each retry attempt, so a final success/failure carries the LAST
+    // attempt's timestamps. Never read by any success/failure decision.
+    let sendButtonFoundAt = null;
+    let sendEnabledAt = null;
+    let sendClickedAt = null;
+    let acceptedAt = null;
+    let insertTimeline = {};
 
     const baselineUserMessageCount =
       document.querySelectorAll(userMessageSelector).length;
@@ -325,6 +352,10 @@ ${buildInsertPromptTextSnippet(prompt)}
 
         const sendButton = document.querySelector(sendButtonSelector);
 
+        if (sendButton && sendButtonFoundAt === null) {
+          sendButtonFoundAt = Date.now();
+        }
+
         // A present-but-disabled button (native disabled attribute, or
         // ChatGPT's own aria-disabled while it's still settling the
         // just-attached image) silently no-ops a real click - wait for
@@ -354,7 +385,8 @@ ${buildInsertPromptTextSnippet(prompt)}
             resolve({
               success: false,
               step: sendButton ? "send-button-disabled" : "send-button-not-found",
-              reason
+              reason,
+              timeline: { ...insertTimeline, sendButtonFoundAt, sendEnabledAt, sendClickedAt, acceptedAt }
             });
             return;
           }
@@ -364,7 +396,11 @@ ${buildInsertPromptTextSnippet(prompt)}
 
         }
 
+        sendEnabledAt = Date.now();
+
         sendButton.click();
+
+        sendClickedAt = Date.now();
 
         console.log("[ChatGPT] send button clicked (attempt " + attempt + ")");
 
@@ -375,11 +411,13 @@ ${buildInsertPromptTextSnippet(prompt)}
           const acceptedBy = checkAccepted();
 
           if (acceptedBy) {
+            acceptedAt = Date.now();
             console.log("[ChatGPT] message accepted (" + acceptedBy + ")");
             resolve({
               success: true,
               step: "send-clicked",
-              acceptedBy
+              acceptedBy,
+              timeline: { ...insertTimeline, sendButtonFoundAt, sendEnabledAt, sendClickedAt, acceptedAt }
             });
             return;
           }
@@ -395,7 +433,8 @@ ${buildInsertPromptTextSnippet(prompt)}
               resolve({
                 success: false,
                 step: "send-not-accepted",
-                reason: "message was not accepted by ChatGPT after " + attempt + " attempts"
+                reason: "message was not accepted by ChatGPT after " + attempt + " attempts",
+                timeline: { ...insertTimeline, sendButtonFoundAt, sendEnabledAt, sendClickedAt, acceptedAt }
               });
               return;
             }
@@ -423,6 +462,8 @@ ${buildInsertPromptTextSnippet(prompt)}
         resolve(insertResult);
         return;
       }
+
+      insertTimeline = insertResult.timeline || {};
 
       attemptSend();
 
@@ -1342,6 +1383,171 @@ export function buildWaitComposerReadyScript() {
     check();
 
   });
+
+})();
+`;
+}
+
+// ============================================================================
+// Version 1.2.3 Debug Build - forensic DOM observation, Debug Mode only.
+//
+// This runs inside the ChatGPT <webview>'s own guest page, which has no
+// access to this app's window.ipcRenderer (preload is only injected
+// into the main app window - a page the webview navigates to, like
+// chatgpt.com, must never get that access, or any site it later loaded
+// could reach this app's file-system APIs). console.log is the only
+// bridge back: Browser.tsx listens for the <webview> element's own
+// "console-message" DOM event and forwards any line carrying the
+// "[DOM-LOG]" prefix into dom.log. Purely observational everywhere
+// below - never calls preventDefault, never mutates the page, only
+// reads and logs.
+// ============================================================================
+
+export function buildAttachDomObserverScript() {
+  return `
+(() => {
+
+  try {
+
+    // Idempotent across multiple Generate calls in the same persistent
+    // webview page (a Workspace's webview is never reloaded between
+    // Generate runs) - disconnect any previous observer before
+    // attaching a new one so repeated runs never accumulate observers.
+    if (window.__gptImageStudioDomObserver) {
+      window.__gptImageStudioDomObserver.disconnect();
+      window.__gptImageStudioDomObserver = null;
+    }
+
+    const editor = document.querySelector("#prompt-textarea");
+
+    if (!editor) {
+      return { success: false, reason: "prompt-textarea not found" };
+    }
+
+    if (!window.__gptImageStudioPasteBound) {
+      editor.addEventListener("paste", () => {
+        console.log("[DOM-LOG] Paste " + JSON.stringify({ at: Date.now() }));
+      });
+      window.__gptImageStudioPasteBound = true;
+    }
+
+    let settleTimer = null;
+    let mutationCount = 0;
+    let assistantSeen =
+      document.querySelectorAll('[data-message-author-role="assistant"]').length > 0;
+    let lastSendDisabled = null;
+
+    const observer = new MutationObserver((mutations) => {
+
+      if (mutationCount === 0) {
+        console.log("[DOM-LOG] DOM Mutations " + JSON.stringify({ batchStartedAt: Date.now() }));
+      }
+
+      mutationCount += mutations.length;
+
+      for (const m of mutations) {
+
+        const target = m.target;
+
+        if (
+          target &&
+          target.id === "composer-submit-button" &&
+          m.type === "attributes"
+        ) {
+
+          const disabled = !!(
+            target.disabled ||
+            target.getAttribute("aria-disabled") === "true"
+          );
+
+          if (lastSendDisabled === true && disabled === false) {
+            console.log("[DOM-LOG] Send Enabled " + JSON.stringify({ at: Date.now() }));
+          }
+
+          lastSendDisabled = disabled;
+
+        }
+
+      }
+
+      if (!assistantSeen) {
+
+        const count = document.querySelectorAll(
+          '[data-message-author-role="assistant"]'
+        ).length;
+
+        if (count > 0) {
+          assistantSeen = true;
+          console.log("[DOM-LOG] Response Started " + JSON.stringify({ at: Date.now() }));
+        }
+
+      }
+
+      if (settleTimer) clearTimeout(settleTimer);
+
+      settleTimer = setTimeout(() => {
+        console.log(
+          "[DOM-LOG] Mutation Finished " +
+          JSON.stringify({ totalMutations: mutationCount, at: Date.now() })
+        );
+        mutationCount = 0;
+        settleTimer = null;
+      }, 400);
+
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["disabled", "aria-disabled", "data-message-author-role"],
+    });
+
+    window.__gptImageStudioDomObserver = observer;
+
+    return { success: true };
+
+  }
+  catch (err) {
+
+    return { success: false, reason: String(err) };
+
+  }
+
+})();
+`;
+}
+
+/**
+ * Debug Mode only - used by the error-capture path (generate.ts) to
+ * attach the composer's own HTML/text to a failure's forensic snapshot.
+ * Read-only, same as everything else in this section.
+ */
+export function buildCaptureComposerSnapshotScript() {
+  return `
+(() => {
+
+  try {
+
+    const editor = document.querySelector("#prompt-textarea");
+
+    if (!editor) {
+      return { composerHtml: null, composerText: null };
+    }
+
+    const form = editor.closest("form") || editor.parentElement;
+
+    return {
+      composerHtml: form ? form.outerHTML : editor.outerHTML,
+      composerText: editor.innerText,
+    };
+
+  }
+  catch (err) {
+
+    return { composerHtml: null, composerText: null, error: String(err) };
+
+  }
 
 })();
 `;
