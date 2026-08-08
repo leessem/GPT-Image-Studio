@@ -1,5 +1,39 @@
 # ROADMAP
 
+## Version 1.2.5 - RELEASED (2026-08-08)
+
+Prompt verification fix, found via a real user-submitted Export
+Diagnostics ZIP from v1.2.4 itself (the exporter fixed in that same
+release).
+
+- **Fixed a prompt-verification false failure**: a Prompt Library
+  template whose first pasted line starts with an ordered-list marker
+  (`"1. "`, `"2. "`, ...) - ChatGPT's composer converts it to a real
+  `<ol><li>` element and the marker becomes CSS `::marker` content,
+  invisible to `editor.innerText`, so verification saw a mismatch and
+  the message never sent. Root cause pinpointed directly from the
+  failing session's own `original_prompt.txt`/`resolved_prompt.txt`
+  (both `"1. 인물 사진:..."`) vs. `composer_readback.txt` (`"인물
+  사진:..."`) - same failure class as Session 29's `"---"`/bare-list-
+  marker fix, one more unhandled pattern.
+- Fixed in `ChatGPT.ts`'s `stripKnownMarkdownAutoformatLines()` only:
+  strips a leading `\d+\.\s+` from the verification comparison copy's
+  first line, same narrowly-scoped, comparison-only approach as the
+  existing fix. No other line, the actual pasted text, and the stored
+  Prompt Library entry are all untouched.
+
+**Verification:**
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean.
+- Live test against the real, exact failing prompt: extracted the
+  precise byte-for-byte prompt text from the failing session's own
+  Export Diagnostics ZIP, ran it through the running app's real
+  `buildPromptScript` against a real ChatGPT conversation (no mock) -
+  verification passed, Send was accepted
+  (`{success: true, step: "send-clicked", acceptedBy:
+  "textarea-empty"}`).
+- `npm run build`: produced `GPT Image Studio v1.2.5 Setup.exe` /
+  `Portable.exe`.
+
 ## Version 1.2.4 - RELEASED (2026-08-08)
 
 Debug Build release: a permanent, Settings-toggleable forensic logging

@@ -31,9 +31,26 @@ function buildInsertPromptTextSnippet(prompt: string) {
   // Prompt Library entry, which this function never touches. Every
   // other difference (wrong words, missing content, a leftover draft)
   // still fails verification exactly as before.
-  const stripKnownMarkdownAutoformatLines = (value) =>
-    value
-      .split("\\n")
+  const stripKnownMarkdownAutoformatLines = (value) => {
+    const lines = value.split("\\n");
+
+    // A line beginning with an ordered-list marker ("1. ", "2. ", ...) AT
+    // THE START of the pasted text becomes a real <ol><li> element - the
+    // marker itself renders as CSS ::marker content, which
+    // editor.innerText never includes (confirmed live via a real
+    // DebugLogs export: a Prompt Library template starting with
+    // "1. 인물 사진:" read back from the composer as just "인물 사진:",
+    // failing verification even though the paste itself was correct).
+    // Only line 0 is affected - CommonMark's list-start rule requires
+    // being at the start of a block, so a later line that happens to
+    // start with a number is untouched. Strips only the marker prefix,
+    // keeping the rest of that line's content, unlike the whole-line
+    // filters below.
+    if (lines.length > 0) {
+      lines[0] = lines[0].replace(/^\\d+\\.\\s+/, "");
+    }
+
+    return lines
       .filter((line) => {
         const trimmed = line.trim();
         // CommonMark thematic break (horizontal rule): 3+ of the same
@@ -49,6 +66,7 @@ function buildInsertPromptTextSnippet(prompt: string) {
         return !(isHorizontalRule || isEmptyListMarker);
       })
       .join("\\n");
+  };
 
   // Clears the composer, pastes in this Workspace's own prompt, and
   // verifies the composer contains that text - tolerating ChatGPT's own

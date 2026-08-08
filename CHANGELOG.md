@@ -2,6 +2,35 @@
 
 All notable changes to GPT Image Studio are documented in this file.
 
+## Version 1.2.5 (2026-08-08)
+
+Prompt verification fix - found via a real Export Diagnostics ZIP from
+a live failure.
+
+- **Fixed: a Prompt Library template whose first line starts with an
+  ordered-list marker (`"1. "`, `"2. "`, ...) could fail prompt
+  verification and never send.** ChatGPT's own composer converts a
+  line beginning with `N. ` at the very start of pasted text into a
+  real ordered-list element - the `"1."` marker renders as CSS
+  `::marker` content, which `editor.innerText` never includes, so the
+  post-paste verification saw the marker silently stripped and
+  reported a mismatch. Confirmed directly from a real
+  `DebugLogs`/Export Diagnostics session: `original_prompt.txt` /
+  `resolved_prompt.txt` both began `"1. 인물 사진:"`;
+  `composer_readback.txt` showed just `"인물 사진:"`.
+- Fixed the same way as the existing `"---"` / bare `"+"`/`"-"`/`"*"`
+  Markdown-autoformat tolerance (Session 29): the verification's
+  comparison copy now also strips a leading ordered-list marker from
+  its first line only - never from the actual pasted text, never from
+  the stored Prompt Library entry, never from any other line.
+- Live-verified against the real, exact failing prompt text (extracted
+  byte-for-byte from the failing session's own diagnostics export),
+  run through the app's real `buildPromptScript` against a real
+  ChatGPT conversation: verification passed and Send was accepted.
+- No changes to Prompt Library data, Prompt Variables, Work Types,
+  Backup/Restore, image upload, or the Send/Generate pipeline itself -
+  scoped to one function's comparison-copy normalization.
+
 ## Version 1.2.4 (2026-08-08)
 
 Debug Build release. Adds a permanent, Settings-toggleable "Debug Mode"

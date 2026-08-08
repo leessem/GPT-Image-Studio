@@ -3279,6 +3279,77 @@ evidence only, per instruction.
 
 ---
 
+## Session 32 (2026-08-08): Version 1.2.5 - prompt verification fix (leading ordered-list marker), production release
+
+### Bug
+
+A user reported a Generate failure ("특정 프롬프트 에러... 1. 이란 프롬프트만
+남기고 다 사라져") and supplied a real Export Diagnostics ZIP (from
+v1.2.4, the exporter fixed in Session 31) captured at the moment of
+failure. Extracted and compared byte-for-byte:
+
+- `original_prompt.txt` / `resolved_prompt.txt` (both, since no
+  `{NAME}`/`{NUM}` substitution touched line 1): `"1. 인물 사진:..."`
+- `composer_readback.txt` (what was actually in ChatGPT's composer
+  after paste): `"인물 사진:..."` - the leading `"1. "` gone entirely.
+- `error.log`: `stage=prompt-verification-failed | reason=composer
+  content did not match the intended prompt after paste`.
+
+Root cause: same class of bug as Session 29's Markdown-autoformat
+fix, one more unhandled pattern. ChatGPT's ProseMirror composer
+converts a line beginning with an ordered-list marker (`N. `) at the
+very start of pasted text into a real `<ol><li>` element; the marker
+itself renders via CSS `::marker`, which `element.innerText` never
+includes. `stripKnownMarkdownAutoformatLines()` (added in Session 29)
+already tolerated `"---"` and bare `"+"`/`"-"`/`"*"` lines the same
+way, but never a leading `"N. "` marker.
+
+### Fix
+
+`stripKnownMarkdownAutoformatLines()` (`ChatGPT.ts`) now also strips
+`/^\d+\.\s+/` from index 0 of the comparison copy's line array before
+the existing whole-line filtering runs - only the very first line
+(CommonMark's list-start rule requires being at the start of a block,
+so a later line that happens to start with a number is untouched).
+Same scoping guarantee as the existing fix: never touches `text`
+itself (what's actually pasted), never the stored Prompt Library
+entry - only the throwaway comparison copy used for the innerText
+equality check.
+
+### Verification
+
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean.
+- Live test against the real, exact failing prompt (not a
+  paraphrase): re-extracted `resolved_prompt.txt`'s raw bytes from the
+  user's diagnostics ZIP, launched the real Debug build
+  (`--remote-debugging-port` temporarily added to `vite.config.ts`,
+  reverted after), and via CDP called the running app's own
+  `buildPromptScript` (dynamically imported from the live Vite module
+  graph, not reimplemented) against the real ChatGPT `<webview>`:
+  `{ readyResult: {success:true}, sendResult: {success:true,
+  step:"send-clicked", acceptedBy:"textarea-empty", timeline:{...}} }`
+  - verification passed, Send accepted.
+- `git diff --stat`: `ChatGPT.ts` only (21 insertions, 3 deletions in
+  one function). No Prompt Library, Prompt Variables, Work Types,
+  Backup/Restore, image upload, or Send/Generate pipeline code
+  touched - confirmed per explicit instruction to scope this to the
+  comparison normalization alone.
+
+### Version bump and release
+
+`package.json` 1.2.4 -> 1.2.5. `npm run build` produced
+`GPT Image Studio v1.2.5 Setup.exe` / `Portable.exe`. `Release/`
+cleaned to those two installers plus `README.txt`/`VERSION.txt` (both
+updated for 1.2.5) and the sample backup template - removed
+`builder-debug.yml`, `.blockmap`, `win-unpacked/`, and the prior
+v1.2.4 installers (the v1.2.4 Debug.exe was left in place - not
+rebuilt this session, wasn't requested).
+
+**Commit:** "Release Version 1.2.5", tag `v1.2.5`, both pushed to
+`origin/main`.
+
+---
+
 ## Session 31 (2026-08-08): Version 1.2.4 - Debug Build feature + Export Diagnostics fix, production release
 
 ### Scope
