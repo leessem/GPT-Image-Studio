@@ -27,6 +27,8 @@ const STATUS_LABEL: Record<Workspace["status"], string> = {
 
     error: "Error",
 
+    revising: "Revising...",
+
 };
 
 interface WorkspacePanelProps {
@@ -49,9 +51,14 @@ interface WorkspacePanelProps {
 
     onSetCustomerNumber: (customerNumber: string) => void;
 
+    onSetCustomerColor: (customerColor: string) => void;
+
     onGenerate: () => void;
 
     onClear: () => void;
+
+    /** v1.3.0 Custom Image Revision */
+    onReviseImage: (instruction: string) => void;
 
 }
 
@@ -75,9 +82,13 @@ export default function WorkspacePanel({
 
     onSetCustomerNumber,
 
+    onSetCustomerColor,
+
     onGenerate,
 
     onClear,
+
+    onReviseImage,
 
 }: WorkspacePanelProps) {
 
@@ -98,13 +109,45 @@ export default function WorkspacePanel({
 
     const clearedMessageTimeout = useRef<ReturnType<typeof setTimeout>>();
 
+    // ========================================================================
+    // v1.3.0 Custom Image Revision - the input box's open/closed state and
+    // typed text are transient local UI state (never stored on the
+    // Workspace itself, same reasoning as showClearedMessage above), so a
+    // failed or abandoned revision instruction can never leak into a
+    // different Workspace tab or a later Generate. Force-reset whenever
+    // the *displayed* workspace changes, same as showClearedMessage.
+    // ========================================================================
+
+    const [showReviseInput, setShowReviseInput] = useState(false);
+
+    const [reviseInstruction, setReviseInstruction] = useState("");
+
     useEffect(() => {
 
         setShowClearedMessage(false);
 
+        setShowReviseInput(false);
+
+        setReviseInstruction("");
+
         return () => clearTimeout(clearedMessageTimeout.current);
 
     }, [workspace.id]);
+
+    const handleReviseSubmit = () => {
+
+        const trimmed = reviseInstruction.trim();
+
+        if (!trimmed)
+            return;
+
+        onReviseImage(trimmed);
+
+        setReviseInstruction("");
+
+        setShowReviseInput(false);
+
+    };
 
     const handleClear = () => {
 
@@ -204,6 +247,17 @@ export default function WorkspacePanel({
     const numberRequired = selectedPrompt?.requiresNumber ?? false;
 
     const numberMissing = numberRequired && !workspace.customerNumber?.trim();
+
+    // ========================================================================
+    // Prompt Variable feature (v1.3.1) - same mechanism as 사용자 이름/
+    // 숫자 above, for the third reserved variable {COLOR}. Independent
+    // of requiresName/requiresNumber - any combination can be active
+    // for a given prompt/Workspace.
+    // ========================================================================
+
+    const colorRequired = selectedPrompt?.requiresColor ?? false;
+
+    const colorMissing = colorRequired && !workspace.customerColor?.trim();
 
     return (
 
@@ -463,6 +517,48 @@ export default function WorkspacePanel({
             )}
 
             {/* ---------------------------------------------------------
+                색상 (Prompt Variable, v1.3.1) - only shown for prompts
+                whose Prompt Library entry requires it. Independent of
+                사용자 이름/숫자 above.
+            ---------------------------------------------------------- */}
+
+            {colorRequired && (
+
+                <div className="workspace-panel-section">
+
+                    <div className="workspace-panel-section-title">
+
+                        색상
+
+                    </div>
+
+                    <input
+
+                        type="text"
+
+                        className="workspace-customer-color-input"
+
+                        value={workspace.customerColor ?? ""}
+
+                        onChange={e => onSetCustomerColor(e.target.value)}
+
+                        placeholder="색상을 입력하세요"
+
+                    />
+
+                    {colorMissing && (
+
+                        <span className="workspace-color-required-message">
+                            색상을 입력해주세요.
+                        </span>
+
+                    )}
+
+                </div>
+
+            )}
+
+            {/* ---------------------------------------------------------
                 Generate / Clear
             ---------------------------------------------------------- */}
 
@@ -474,7 +570,14 @@ export default function WorkspacePanel({
 
                         className="workspace-generate-button"
 
-                        disabled={!workspace.prompt || workspace.status === "running" || nameMissing || numberMissing}
+                        disabled={
+                            !workspace.prompt ||
+                            workspace.status === "running" ||
+                            workspace.status === "revising" ||
+                            nameMissing ||
+                            numberMissing ||
+                            colorMissing
+                        }
 
                         onClick={onGenerate}
 
@@ -488,7 +591,7 @@ export default function WorkspacePanel({
 
                         className="workspace-clear-button"
 
-                        disabled={workspace.status === "running"}
+                        disabled={workspace.status === "running" || workspace.status === "revising"}
 
                         onClick={handleClear}
 
@@ -509,6 +612,106 @@ export default function WorkspacePanel({
                 )}
 
             </div>
+
+            {/* ---------------------------------------------------------
+                v1.3.0 Custom Image Revision - only shown once this
+                Workspace actually has a saved result image (imagePath
+                is set the moment a Generate or an earlier revision
+                completes, and is never cleared by the "Ready" reset -
+                see generate.ts/revise.ts). Never sends the Prompt
+                Library's own prompt again; only this short instruction
+                plus the existing result image.
+            ---------------------------------------------------------- */}
+
+            {workspace.imagePath && (
+
+                <div className="workspace-panel-section">
+
+                    <div className="workspace-panel-section-title">
+
+                        커스텀 수정
+
+                    </div>
+
+                    {!showReviseInput ? (
+
+                        <button
+
+                            className="workspace-revise-toggle-button"
+
+                            disabled={workspace.status === "running" || workspace.status === "revising"}
+
+                            onClick={() => setShowReviseInput(true)}
+
+                        >
+
+                            커스텀 수정
+
+                        </button>
+
+                    ) : (
+
+                        <div className="workspace-revise-input">
+
+                            <textarea
+
+                                value={reviseInstruction}
+
+                                onChange={e => setReviseInstruction(e.target.value)}
+
+                                placeholder="원하는 수정 내용을 입력하세요"
+
+                                rows={3}
+
+                                disabled={workspace.status === "revising"}
+
+                            />
+
+                            <div className="workspace-revise-actions">
+
+                                <button
+
+                                    className="workspace-revise-submit-button"
+
+                                    disabled={!reviseInstruction.trim() || workspace.status === "revising"}
+
+                                    onClick={handleReviseSubmit}
+
+                                >
+
+                                    수정 생성
+
+                                </button>
+
+                                <button
+
+                                    className="workspace-revise-cancel-button"
+
+                                    disabled={workspace.status === "revising"}
+
+                                    onClick={() => {
+
+                                        setShowReviseInput(false);
+
+                                        setReviseInstruction("");
+
+                                    }}
+
+                                >
+
+                                    취소
+
+                                </button>
+
+                            </div>
+
+                        </div>
+
+                    )}
+
+                </div>
+
+            )}
 
         </div>
 

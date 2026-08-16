@@ -2,6 +2,68 @@
 
 All notable changes to GPT Image Studio are documented in this file.
 
+## Version 1.3.1 (2026-08-16)
+
+**Added {COLOR} Prompt Variable and per-Prompt TXT Attachment Mode.**
+
+- Added a third reserved Prompt Variable, {COLOR}, alongside {NAME}/
+  {NUM}: a Prompt Library entry can check "색상 입력 필요" to show a
+  "색상" input on the Workspace panel, substituted into every {COLOR}
+  occurrence right before Generate - same mechanism, same independence
+  from the other two, as {NAME}/{NUM}. Each Workspace holds its own
+  COLOR value.
+- Added a per-Prompt "TXT 첨부 방식" checkbox. When ON, Generate sends
+  that Prompt via ChatGPT's own native "paste long text as a document
+  attachment" behavior instead of the normal inline-paste path -
+  confirmed live via a real captured ChatGPT DOM snapshot that pasting
+  sufficiently long text makes ChatGPT itself (not this app) convert it
+  into a file/document attachment tile. This app never builds a .txt
+  file itself and never alters the Prompt's content, spacing, line
+  breaks, or Markdown in any way - only the delivery mechanism changes,
+  and a Prompt with TXT mode OFF is generated exactly as before.
+  Implemented as a fully separate script (`buildTxtPromptScript`); the
+  normal path (`buildPromptScript`, used by both Generate and the
+  v1.3.0 custom-revision pipeline) is untouched.
+- Prompt Library's variable-substitution help text now also mentions
+  {COLOR} and explains TXT 첨부 방식.
+- `requiresColor`/`txtAttachmentMode` are preserved by Backup/Restore
+  and are backward-compatible with Prompt Library backups exported
+  before this version (missing values default to `false`).
+- No changes to {NAME}/{NUM} substitution, Work Type, Backup/Restore
+  of existing fields, image upload, the 1st-pass Generate pipeline
+  when TXT mode is off, or the v1.3.0 custom-revision pipeline.
+
+## Version 1.3.0 (2026-08-16)
+
+**Added Custom Image Revision.** A Workspace with a completed result
+image now shows a "커스텀 수정" button - clicking it opens a multi-line
+instruction box, and "수정 생성" runs a 2nd-pass edit of that same
+result image instead of re-running the full Prompt Library prompt.
+
+- Generated images can be revised with a short custom instruction
+  (e.g. "배경만 조금 더 밝게 해줘") instead of resending the original,
+  often much longer, Prompt Library prompt.
+- The 2nd-pass edit re-attaches the Workspace's own existing result
+  image as its input, on the same Workspace conversation, and sends
+  only the new instruction - implemented as its own pipeline
+  (`src/services/revise.ts`), reusing the same ChatGPT.ts automation
+  scripts as Generate but never routed through `runGenerate` itself,
+  so the verified v1.2.5 1st-pass flow (Upload -> Prompt insertion ->
+  Verification -> Send -> Generation detection -> Image viewer ->
+  Download -> Workspace Ready) is unchanged.
+- The original result image is never overwritten. Revised images are
+  saved alongside it using a `+` / `++` / `+++` filename suffix
+  (e.g. `★_50일_아기_001.png` -> `★_50일_아기_001+.png` ->
+  `★_50일_아기_001++.png`), appended directly before the file
+  extension - existing Prefix / Work Type Prefix / Prompt Title /
+  numeric-suffix filename generation is untouched.
+- A failed revision leaves the Workspace's existing result and file
+  untouched, surfaces through the same status-badge error state
+  Generate already uses, and never carries its typed instruction into
+  another Workspace or generation.
+- No changes to Prompt Library, {NAME}/{NUM} substitution, Work Type,
+  Backup/Restore, image upload, or the 1st-pass Generate pipeline.
+
 ## Version 1.2.5 (2026-08-08)
 
 Prompt verification fix - found via a real Export Diagnostics ZIP from

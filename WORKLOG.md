@@ -3525,3 +3525,192 @@ consolidates both v1.2.2's work and this session's modal fix into one
 `v1.2.3` commit/tag; `CHANGELOG.md`/`ROADMAP.md` keep the v1.2.2
 narrative as its own section for history, folded under v1.2.3.
 `package.json` 1.2.2 -> 1.2.3.
+
+---
+
+## Session 31 (2026-08-16): Version 1.3.0 - Custom Image Revision
+
+### Feature
+
+Added a 2nd-pass "커스텀 수정" (custom revision) flow: once a Workspace
+has a saved result image, a button appears that opens a multi-line
+instruction box; submitting it re-attaches that same result image as
+a fresh image input and sends only the typed instruction - never the
+original Prompt Library prompt again.
+
+### Structure decision
+
+Read the actual current architecture first (CLAUDE.md's own
+Architecture section describes a stale pre-rewrite Project/Tab/Job
+model that no longer exists in the code - the real v1.0 model is flat
+`Workspace[]`, one persistent `<webview>` per Workspace, no Job/Queue).
+Built strictly against what's actually there:
+
+- New file `src/services/revise.ts` (`runReviseImage`), not a change to
+  `generate.ts`. Reuses the same already-generic `ChatGPT.ts` script
+  builders `runGenerate` itself calls (composer-ready, upload, upload-
+  wait, ensure-normal-interface, prompt+send, wait-for-image, viewer
+  open/wait/close, download-click) - so composer stale-draft
+  protection, prompt verification, and the Markdown-autoformat
+  handling (both fixed in v1.2.4/v1.2.5) apply unchanged, without
+  `runGenerate`'s own orchestration ever being modified. Duplication
+  between `generate.ts` and `revise.ts` was accepted deliberately
+  instead of extracting a shared helper, to keep zero risk to the
+  verified 1st-pass pipeline.
+- `WorkspaceStatus` gained a `"revising"` member (distinct from
+  `"running"`) so the status badge and the Generate/Clear busy-guards
+  can tell a 2nd-pass edit apart from a 1st-pass Generate without
+  overloading the existing state.
+- New IPC in `electron/main.ts`/`preload.ts`: `image:readAsDataUrl`
+  (reads an already-saved result PNG back off disk as a data: URL, so
+  it can be fed into the exact same `buildUploadImageScript` a fresh
+  Upload already uses - that script only ever accepts a data: URL) and
+  `image:armRevisionDownload` (arms the next `will-download` the same
+  way `image:armDownload` does, but tagged with the source file path
+  being revised).
+- New `buildRevisionFilename(dir, sourceFilePath)` in `main.ts`:
+  appends exactly one more `+` directly before the source file's own
+  extension (`...001.png` -> `...001+.png` -> `...001++.png`, ...),
+  never touching `buildAutoFilename`'s Prefix/Work Type Prefix/Prompt
+  Title/numeric-suffix scheme. Never overwrites - re-checks existence
+  and keeps stacking `+` the same never-clobber way `buildAutoFilename`
+  already does for 1st-pass saves.
+- Per explicit user correction mid-session: no result-image thumbnail/
+  preview was added to the panel - only the "커스텀 수정" button +
+  instruction box, gated on `workspace.imagePath` being set.
+
+### Verification
+
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean.
+- `npm run build`: produced `GPT Image Studio v1.3.0 Setup.exe` /
+  `Portable.exe` in `Release/`.
+- `npm run dev` boot check: launched the packaged dev build, confirmed
+  the Electron process tree started and stayed up (no crash, no
+  uncaught main-process exception) with the new `ipcMain.handle`/`.on`
+  registrations in place; only benign pre-existing Chromium GPU-cache
+  warnings appeared (`cache_util_win.cc`), unrelated to this change.
+  Torn down cleanly after.
+- **Not performed**: a live end-to-end run against a real ChatGPT
+  session (1st-pass Generate -> "커스텀 수정" -> `+` file ->
+  "커스텀 수정" again -> `++` file). This environment has no GUI/
+  screenshot control over the Electron window's ChatGPT `<webview>`,
+  and driving a real ChatGPT conversation autonomously would touch the
+  user's actual account - left for the user to verify directly, per
+  their own instruction that Release/commit/push only happen once
+  testing has actually succeeded.
+- No changes to Prompt Library, {NAME}/{NUM}, Work Type, Backup/
+  Restore, image upload, or `generate.ts`/`runGenerate` itself.
+  `package.json` 1.2.5 -> 1.3.0.
+
+---
+
+## Session 32 (2026-08-16): Version 1.3.1 - {COLOR} Prompt Variable + TXT Attachment Mode
+
+### {COLOR}
+
+Added a third reserved Prompt Variable, `{COLOR}`, mirroring
+`{NAME}`/`{NUM}` at every touch point: `PromptItem`/`PromptDraft`/
+`PromptExportItem` (`requiresColor`), `Promptstore.ts` (validation,
+legacy-migration default, create/update/export/import - all three
+`importPayload` branches), `Workspace.customerColor`,
+`WorkspaceService.setWorkspaceCustomerColor`, `Workspace.tsx`'s
+`onSetCustomerColor`, `WorkspacePanel.tsx`'s "색상" input (gated on
+`selectedPrompt.requiresColor`, blocks Generate while required-and-
+empty, same as 사용자 이름/숫자), `PromptModal.tsx`'s "색상 입력 필요"
+checkbox, and `promptVariables.ts`'s `applyPromptVariables` (added a
+third `customerColor` parameter). The one necessary touch to
+`generate.ts` itself: passing `workspace.customerColor` as a third
+argument to the existing `applyPromptVariables` call - everything else
+about the Generate pipeline is untouched.
+
+### TXT Attachment Mode - investigation before implementation
+
+Per explicit instruction, did NOT assume ChatGPT's "long pasted text
+becomes a document attachment" behavior could be reproduced by this
+app's own synthetic paste dispatch - went and confirmed it with a real
+capture first, since nothing else in `ChatGPT.ts` ships without a
+"confirmed live" annotation and this behavior had none anywhere in the
+codebase or WORKLOG.
+
+Could not drive a real ChatGPT session directly (no GUI/screenshot
+tool in this environment, and using the user's real account
+autonomously would be inappropriate) - instead used the app's own
+existing Debug Mode forensic capture (`saveComposerSnapshot`, already
+built for a different purpose entirely) as the observation tool: asked
+the user to run one real Generate attempt, through the actual app,
+against a genuinely long (~10.5K character, 294-line, user-supplied)
+Prompt Library entry with Debug Mode on, then read the resulting
+`DebugLogs/<sessionId>/composer.html` directly off disk.
+
+**Confirmed live from that real capture:**
+- The long-pasted text DID convert into its own file/document
+  attachment tile (`[role="group"][aria-label="Create a professiona.."]`
+  - ChatGPT's own truncated preview of the pasted text as the tile's
+  aria-label), sitting alongside the already-uploaded image's own tile
+  in the composer's header row - via the exact same synthetic
+  `ClipboardEvent("paste", {clipboardData})` dispatch
+  `buildPromptScript`'s own `insertPromptText` already uses. This app
+  never builds a `.txt` file itself; it only triggers and observes
+  ChatGPT's own native behavior.
+- `#prompt-textarea`'s own `innerText` was completely empty at capture
+  time (`composer.txt`/`composer_readback.txt` were both 0 bytes) -
+  confirms why `buildPromptScript`'s own text-comparison verification
+  is structurally wrong for this case (and, in that same real attempt,
+  is exactly what made it correctly fail with
+  `prompt-verification-failed` - not a hang; the earlier "진행이
+  없다"/no-progress report turned out to be an unrelated instruction
+  mistake on the assistant's part - the test Prompt requires an
+  uploaded reference photo and none was attached for that first dry
+  run of the DOM-only investigation).
+- This also means `checkAccepted()`'s `"textarea-empty"` signal
+  (`buildPromptScript`'s highest-priority accept signal) would be
+  trivially true from the very first poll after clicking Send in TXT
+  mode, regardless of whether the click actually registered - dropped
+  from the TXT-mode variant's own `checkAccepted()` for exactly this
+  reason.
+- A file tile's `aria-label` is only a truncated preview, never the
+  full attached text - there is no way for this app to read a
+  collapsed tile's full content back out of the DOM. Documented as an
+  explicit, known limit of TXT-mode verification rather than silently
+  claimed as full content verification.
+
+### Implementation
+
+Added `buildTxtPromptScript` to `ChatGPT.ts` as a fully separate
+function - `buildPromptScript` itself (used by both normal Generate and
+the v1.3.0 `revise.ts` pipeline) was not touched at all. Structure:
+same clear-composer guard and same paste-dispatch mechanism as
+`buildPromptScript`, then verifies EITHER of two ChatGPT-decided
+outcomes (never forces one): (A) a new file tile appeared, with its
+truncated `aria-label` prefix-matching the start of the intended text
+(catches a wrong/stale tile, not a byte-for-byte guarantee - see above)
+- the expected/confirmed outcome for a genuinely long prompt; or (B)
+the text landed as ordinary inline text instead (ChatGPT chose not to
+convert it - e.g. a TXT-mode Prompt that happens to be short), verified
+the same Markdown-autoformat-tolerant way `buildPromptScript`'s own
+`insertPromptText` already does, so a short TXT-mode Prompt still sends
+instead of hanging while waiting for a tile that will never appear.
+Send-and-retry logic is a duplicated variant of `buildPromptScript`'s
+own `attemptSend()`, with only the `"textarea-empty"` signal dropped
+per the finding above.
+
+Wiring: `PromptItem.txtAttachmentMode` (mirrors `requiresColor`'s data-
+model touch points exactly) is denormalized onto
+`Workspace.txtAttachmentMode` at prompt-selection time (same pattern as
+`workTypePrefix` alongside `workTypeId` - a later edit to the Prompt
+Library entry never changes what an already-selected Workspace does).
+`generate.ts` gained exactly one branch point: `workspace.
+txtAttachmentMode ? buildTxtPromptScript(...) : buildPromptScript(...)`
+- every other pipeline stage (Upload, viewer, download, filename,
+Workspace Ready, the Debug Mode forensic capture that made this whole
+investigation possible) is identical either way.
+
+### Verification
+
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean.
+- `package.json` 1.3.0 -> 1.3.1 (v1.3.0's Custom Image Revision folds
+  into this same release/tag, same as v1.2.2 folded into v1.2.3 in
+  Session 30 - see ROADMAP.md).
+- Live user test of normal (non-TXT) Generate and one TXT-mode Generate
+  against the real, exact long test Prompt: pending user confirmation
+  before build/commit/tag/push/release (see final report).

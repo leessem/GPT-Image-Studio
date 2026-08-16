@@ -50,6 +50,10 @@ function migrateLegacyPrompt(legacy: LegacyPromptItem): PromptItem {
 
         requiresNumber: false,
 
+        requiresColor: false,
+
+        txtAttachmentMode: false,
+
     };
 
 }
@@ -57,9 +61,10 @@ function migrateLegacyPrompt(legacy: LegacyPromptItem): PromptItem {
 /**
  * Never trust localStorage blindly - stale/legacy-shaped data must fall
  * back to a default instead of being used as-is. `requiresName`/
- * `requiresNumber` are checked as optional here - items persisted
- * before v1.2.0/v1.2.1 respectively won't have them yet, and
- * loadPersistedPrompts normalizes both to false afterward.
+ * `requiresNumber`/`requiresColor`/`txtAttachmentMode` are checked as
+ * optional here - items persisted before v1.2.0/v1.2.1/v1.3.1
+ * respectively won't have them yet, and loadPersistedPrompts normalizes
+ * all four to false afterward.
  */
 function isValidPromptItem(value: unknown): value is PromptItem {
 
@@ -79,7 +84,9 @@ function isValidPromptItem(value: unknown): value is PromptItem {
         typeof item.createdAt === "string" &&
         typeof item.updatedAt === "string" &&
         (item.requiresName === undefined || typeof item.requiresName === "boolean") &&
-        (item.requiresNumber === undefined || typeof item.requiresNumber === "boolean")
+        (item.requiresNumber === undefined || typeof item.requiresNumber === "boolean") &&
+        (item.requiresColor === undefined || typeof item.requiresColor === "boolean") &&
+        (item.txtAttachmentMode === undefined || typeof item.txtAttachmentMode === "boolean")
     );
 
 }
@@ -108,6 +115,14 @@ export function isValidExportPayload(value: unknown): value is PromptExportItem[
         (
             (entry as PromptExportItem).requiresNumber === undefined ||
             typeof (entry as PromptExportItem).requiresNumber === "boolean"
+        ) &&
+        (
+            (entry as PromptExportItem).requiresColor === undefined ||
+            typeof (entry as PromptExportItem).requiresColor === "boolean"
+        ) &&
+        (
+            (entry as PromptExportItem).txtAttachmentMode === undefined ||
+            typeof (entry as PromptExportItem).txtAttachmentMode === "boolean"
         )
     );
 
@@ -130,14 +145,17 @@ function loadPersistedPrompts(): PromptItem[] | null {
         )
             return null;
 
-        // Items persisted before v1.2.0/v1.2.1 have no requiresName/
-        // requiresNumber field at all - normalize those to false here,
-        // once, so every other read site can rely on them always being
-        // real booleans.
+        // Items persisted before v1.2.0/v1.2.1/v1.3.1 have no
+        // requiresName/requiresNumber/requiresColor/txtAttachmentMode
+        // field at all - normalize all four to false here, once, so
+        // every other read site can rely on them always being real
+        // booleans.
         return parsed.map(item => ({
             ...item,
             requiresName: item.requiresName ?? false,
             requiresNumber: item.requiresNumber ?? false,
+            requiresColor: item.requiresColor ?? false,
+            txtAttachmentMode: item.txtAttachmentMode ?? false,
         }));
 
     }
@@ -202,6 +220,10 @@ class PromptStoreImpl {
 
             requiresNumber: draft.requiresNumber,
 
+            requiresColor: draft.requiresColor,
+
+            txtAttachmentMode: draft.txtAttachmentMode,
+
         };
 
         this.items = [...this.items, item];
@@ -237,6 +259,10 @@ class PromptStoreImpl {
                 requiresName: draft.requiresName,
 
                 requiresNumber: draft.requiresNumber,
+
+                requiresColor: draft.requiresColor,
+
+                txtAttachmentMode: draft.txtAttachmentMode,
 
                 updatedAt: new Date().toISOString(),
 
@@ -281,12 +307,14 @@ class PromptStoreImpl {
      */
     exportPayload(): PromptExportItem[] {
 
-        return this.items.map(({ title, prompt, negativePrompt, requiresName, requiresNumber }) => ({
+        return this.items.map(({ title, prompt, negativePrompt, requiresName, requiresNumber, requiresColor, txtAttachmentMode }) => ({
             title,
             prompt,
             negativePrompt,
             requiresName,
             requiresNumber,
+            requiresColor,
+            txtAttachmentMode,
         }));
 
     }
@@ -324,6 +352,8 @@ class PromptStoreImpl {
                     negativePrompt: entry.negativePrompt,
                     requiresName: entry.requiresName ?? false,
                     requiresNumber: entry.requiresNumber ?? false,
+                    requiresColor: entry.requiresColor ?? false,
+                    txtAttachmentMode: entry.txtAttachmentMode ?? false,
                     createdAt: now,
                     updatedAt: now,
                 });
@@ -343,6 +373,8 @@ class PromptStoreImpl {
                     negativePrompt: entry.negativePrompt,
                     requiresName: entry.requiresName ?? false,
                     requiresNumber: entry.requiresNumber ?? false,
+                    requiresColor: entry.requiresColor ?? false,
+                    txtAttachmentMode: entry.txtAttachmentMode ?? false,
                     updatedAt: now,
                 };
 
@@ -371,6 +403,8 @@ class PromptStoreImpl {
                 negativePrompt: entry.negativePrompt,
                 requiresName: entry.requiresName ?? false,
                 requiresNumber: entry.requiresNumber ?? false,
+                requiresColor: entry.requiresColor ?? false,
+                txtAttachmentMode: entry.txtAttachmentMode ?? false,
                 createdAt: now,
                 updatedAt: now,
             });

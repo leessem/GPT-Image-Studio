@@ -159,6 +159,16 @@ interface PendingDownload {
   id: string;
   baseName: string;
   workTypePrefix: string;
+
+  /**
+   * v1.3.0 Custom Image Revision: when set, this download is a 2nd-pass
+   * edit of an existing result, not a fresh 1st-pass Generate - the
+   * filename is derived from this source file's own name (see
+   * buildRevisionFilename) instead of from Prefix/Work Type
+   * Prefix/Prompt Title (buildAutoFilename). baseName/workTypePrefix
+   * above are unused in that case.
+   */
+  revisionSourcePath?: string;
 }
 
 // V1.0 multi-Workspace isolation: a download must always be attributed to
@@ -412,6 +422,33 @@ function buildAutoFilename(
 
 }
 
+/**
+ * v1.3.0 Custom Image Revision: "{sourceBaseName}+.png" - never touches
+ * Prefix/Work Type Prefix/Prompt Title/numeric-suffix generation
+ * (buildAutoFilename above), it only ever appends one more "+" directly
+ * in front of the source file's own extension. Re-revising an already-
+ * revised file (e.g. "...001+.png") keeps stacking "+" ("...001++.png",
+ * "...001+++.png", ...), matching the source name exactly since
+ * path.basename/extname strip only the extension. Never overwrites an
+ * existing file - if that exact candidate is somehow already taken,
+ * keeps appending "+" until a free name is found, the same never-
+ * clobber guarantee buildAutoFilename gives 1st-pass saves.
+ */
+function buildRevisionFilename(dir: string, sourceFilePath: string): string {
+
+  const ext = path.extname(sourceFilePath) || ".png";
+  const base = path.basename(sourceFilePath, ext);
+
+  let candidateBase = `${base}+`;
+
+  while (fs.existsSync(path.join(dir, `${candidateBase}${ext}`))) {
+    candidateBase = `${candidateBase}+`;
+  }
+
+  return `${candidateBase}${ext}`;
+
+}
+
 app.on("second-instance", () => {
   if (win) {
     if (win.isMinimized()) win.restore();
@@ -488,11 +525,13 @@ app.whenReady().then(() => {
       pendingDownloads.delete(workspaceId);
     }
 
-    const fileName = buildAutoFilename(
-      generatedImagesDir,
-      pending?.baseName ?? "Untitled",
-      pending?.workTypePrefix ?? ""
-    );
+    const fileName = pending?.revisionSourcePath
+      ? buildRevisionFilename(generatedImagesDir, pending.revisionSourcePath)
+      : buildAutoFilename(
+          generatedImagesDir,
+          pending?.baseName ?? "Untitled",
+          pending?.workTypePrefix ?? ""
+        );
 
     const filePath = path.join(generatedImagesDir, fileName);
 
@@ -539,6 +578,28 @@ app.whenReady().then(() => {
       pendingDownloads.set(id, { id, baseName, workTypePrefix });
 
       logMainEvent(id, "Download Armed", { baseName, workTypePrefix });
+
+      event.returnValue = true;
+    }
+  );
+
+  // v1.3.0 Custom Image Revision: arms the next download the same way
+  // image:armDownload does for a 1st-pass Generate, but tags it with
+  // the source file being revised so handleWillDownload picks
+  // buildRevisionFilename's "+"-suffix scheme instead of
+  // buildAutoFilename's Prefix/Title scheme - see PendingDownload's
+  // revisionSourcePath field above.
+  ipcMain.on(
+    "image:armRevisionDownload",
+    (event, id: string, sourceFilePath: string) => {
+      pendingDownloads.set(id, {
+        id,
+        baseName: "",
+        workTypePrefix: "",
+        revisionSourcePath: sourceFilePath,
+      });
+
+      logMainEvent(id, "Revision Download Armed", { sourceFilePath });
 
       event.returnValue = true;
     }
@@ -626,6 +687,21 @@ app.whenReady().then(() => {
       return { exists: false, size: 0 };
     }
   );
+
+  // v1.3.0 Custom Image Revision: reads an already-saved result image
+  // back off disk and returns it as a data: URL, so it can be
+  // re-attached into the composer via the SAME buildUploadImageScript
+  // a fresh Upload already uses (that script only ever takes a data:
+  // URL - see ChatGPT.ts - never a raw file path). Throws on a missing/
+  // unreadable file; the caller (src/services/revise.ts) treats that as
+  // a normal pipeline failure, same as any other step.
+  ipcMain.handle("image:readAsDataUrl", (_, filePath: string) => {
+    const buffer = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeType = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : "image/png";
+
+    return `data:${mimeType};base64,${buffer.toString("base64")}`;
+  });
 
   // ===============================
   // Settings

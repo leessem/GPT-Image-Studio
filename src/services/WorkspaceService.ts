@@ -89,7 +89,9 @@ export function setWorkspacePrompt(
 
     promptText: string,
 
-    promptTitle: string
+    promptTitle: string,
+
+    txtAttachmentMode: boolean
 
 ): Workspace[] {
 
@@ -112,6 +114,8 @@ export function setWorkspacePrompt(
                   prompt: promptText,
 
                   selectedPromptId: promptId,
+
+                  txtAttachmentMode,
 
               }
             : w
@@ -213,6 +217,29 @@ export function setWorkspaceCustomerNumber(
         workspaces,
         id,
         w => ({ ...w, customerNumber })
+    );
+
+}
+
+/**
+ * Sets the Workspace's own {COLOR} substitution value (Prompt Variable
+ * feature, v1.3.1) - independent per Workspace, unrelated to Work Type
+ * and to customerName/customerNumber.
+ */
+export function setWorkspaceCustomerColor(
+
+    workspaces: Workspace[],
+
+    id: string,
+
+    customerColor: string
+
+): Workspace[] {
+
+    return updateWorkspace(
+        workspaces,
+        id,
+        w => ({ ...w, customerColor })
     );
 
 }

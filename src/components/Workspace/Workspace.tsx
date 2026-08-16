@@ -21,6 +21,7 @@ import { PromptDraft, PromptItem } from "../../types/Prompt";
 import { WorkType } from "../../types/WorkType";
 
 import { runGenerate } from "../../services/generate";
+import { runReviseImage } from "../../services/revise";
 import {
     logWorkspaceEvent,
     describeWorkspace,
@@ -50,6 +51,7 @@ import {
     setWorkspaceUploadedImage,
     setWorkspaceCustomerName,
     setWorkspaceCustomerNumber,
+    setWorkspaceCustomerColor,
     clearWorkspace,
 } from "../../services/WorkspaceService";
 
@@ -369,6 +371,69 @@ export default function Workspace() {
     };
 
     // ========================================================================
+    // v1.3.0 Custom Image Revision
+    //
+    // A 2nd-pass edit of the active Workspace's existing result image -
+    // kept as its own handler/pipeline (src/services/revise.ts), never
+    // routed through onGenerate/runGenerate, so the verified 1st-pass
+    // Generate flow is never touched by this feature. Same reentrancy
+    // guard shape as onGenerate: checked against THIS Workspace's own
+    // status only, so it can never block a different Workspace, and it
+    // also blocks while a 1st-pass Generate ("running") is still active
+    // on this same Workspace/webview.
+    // ========================================================================
+
+    const onReviseImage = async (instruction: string) => {
+
+        console.log("[Revise] Revise clicked for workspace", currentWorkspace.id);
+
+        if (!browserPoolRef.current) {
+            console.error("[Revise] Aborted: browser pool not ready");
+            return;
+        }
+
+        if (currentWorkspace.status === "running" || currentWorkspace.status === "revising") {
+            console.warn("[Revise] Aborted: this Workspace is already busy");
+            return;
+        }
+
+        if (!currentWorkspace.imagePath) {
+            console.warn("[Revise] Aborted: this Workspace has no existing result image");
+            return;
+        }
+
+        const trimmedInstruction = instruction.trim();
+
+        if (!trimmedInstruction) {
+            console.warn("[Revise] Aborted: empty revision instruction");
+            return;
+        }
+
+        const workspace = currentWorkspace;
+
+        const browser = await browserPoolRef.current.ensure(
+            workspace.id,
+            workspace.conversationUrl
+        );
+
+        await runReviseImage({
+
+            browser,
+
+            workspace,
+
+            instruction: trimmedInstruction,
+
+            onUpdate: updater =>
+                setWorkspacesLogged("revise:onUpdate", prev => updateWorkspace(prev, workspace.id, updater)),
+
+            onError: err => console.error(err),
+
+        });
+
+    };
+
+    // ========================================================================
     // Clear - instant reset of ONLY the active Workspace (its own image/
     // prompt/Work Type/status/conversation), so the user can start the
     // next generation right away without opening a new Workspace tab.
@@ -475,7 +540,8 @@ export default function Workspace() {
                 currentWorkspace.id,
                 promptId,
                 item.prompt,
-                item.title
+                item.title,
+                item.txtAttachmentMode
             )
         );
 
@@ -521,6 +587,17 @@ export default function Workspace() {
 
         setWorkspacesLogged("setCustomerNumber", prev =>
             setWorkspaceCustomerNumber(prev, currentWorkspace.id, customerNumber)
+        );
+
+    };
+
+    // Prompt Variable feature (v1.3.1) - free-text value substituted for
+    // {COLOR} in the selected prompt, independent of customerName/
+    // customerNumber.
+    const onSetCustomerColor = (customerColor: string) => {
+
+        setWorkspacesLogged("setCustomerColor", prev =>
+            setWorkspaceCustomerColor(prev, currentWorkspace.id, customerColor)
         );
 
     };
@@ -643,9 +720,13 @@ export default function Workspace() {
 
                     onSetCustomerNumber={onSetCustomerNumber}
 
+                    onSetCustomerColor={onSetCustomerColor}
+
                     onGenerate={onGenerate}
 
                     onClear={onClearWorkspace}
+
+                    onReviseImage={onReviseImage}
 
                 />
 

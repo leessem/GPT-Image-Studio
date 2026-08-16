@@ -493,6 +493,512 @@ ${buildInsertPromptTextSnippet(prompt)}
 `;
 }
 
+// ============================================================================
+// v1.3.1 TXT Attachment Mode
+//
+// Confirmed live (real DebugLogs/<session>/composer.html capture, taken
+// mid-paste of a ~10.5K-character Prompt Library entry): ChatGPT's OWN
+// paste handler - not this app - converts sufficiently long pasted text
+// into a file/document attachment tile instead of inline ProseMirror
+// content, the same "붙여넣은 텍스트 -> 문서" behavior a real Ctrl+V
+// produces in a normal browser tab. This app never builds a .txt file
+// itself; it dispatches the exact same synthetic ClipboardEvent paste
+// buildPromptScript's own insertPromptText already uses (proven live to
+// reach ChatGPT's real paste-handling pipeline, including its Markdown-
+// autoformat transforms - see the "---"/bare-list-marker/ordered-list-
+// marker fixes elsewhere in this file), and lets ChatGPT itself decide
+// how to render it.
+//
+// The captured DOM: every attached file (an uploaded image AND a long-
+// pasted-text document alike) renders as its own
+// `[role="group"][aria-label]` "file tile" inside the composer's header
+// row; the text tile's aria-label is ChatGPT's own truncated preview of
+// what it attached (e.g. "Create a professiona.."). At the moment of
+// capture #prompt-textarea's own innerText was completely empty (its
+// content moved into the tile, not inline) - buildPromptScript's own
+// text-comparison verification would (and, in that same capture, did)
+// fail/timeout against this, which is why TXT mode needs its own
+// verification, not a bypass of verification altogether.
+// ============================================================================
+
+/**
+ * v1.3.1 TXT Attachment Mode - confirmed live that ChatGPT treats a
+ * message containing ONLY a file/document attachment (no inline text)
+ * as reference material to discuss, not as an instruction to act on -
+ * it replies asking what to do with it instead of generating an image.
+ * A fixed, non-Prompt-Library, app-level trigger sent as a short,
+ * ordinary follow-up message (via buildPromptScript itself - short
+ * enough to never trigger ChatGPT's own document-attachment
+ * conversion) is what actually gets it to act on the just-attached
+ * Prompt. This string is never stored in, editable from, or unique
+ * per Prompt Library entry - every TXT-mode Generate sends the exact
+ * same trigger, right after the attachment message itself is
+ * confirmed accepted (see generate.ts's own TXT branch).
+ */
+export const TXT_ATTACHMENT_TRIGGER_MESSAGE = "텍스트 내용대로 이미지를 만들어줘";
+
+/**
+ * v1.3.1 TXT Attachment Mode - confirmed live: right after the
+ * attachment message is accepted, ChatGPT's own response to it (its
+ * "what would you like me to do?" reply) is often still actively
+ * streaming, and #composer-submit-button is in its "stop generation"
+ * state during that time - clickable, but NOT the normal Send action.
+ * Immediately pasting+clicking the trigger message into that state
+ * (as buildPromptScript's own generic waitForButton would, since a
+ * stop-button is not `disabled`) either stops the in-progress reply
+ * instead of sending, or otherwise never actually submits the typed
+ * text - confirmed live as "trigger text gets typed but never sent".
+ * This waits for that button to leave its generating/stop state
+ * before generate.ts's TXT branch calls buildPromptScript for the
+ * trigger message - a TXT-mode-specific ordering fix, kept out of
+ * buildPromptScript itself so the normal 1st-pass Generate/revise.ts
+ * paths (which only ever send one message, never back-to-back) are
+ * completely unaffected.
+ */
+export function buildWaitForComposerIdleScript() {
+  return `
+(() => {
+
+  return new Promise((resolve) => {
+
+    const sendButtonSelector = "#composer-submit-button";
+    const timeoutMs = 60000;
+    const pollMs = 200;
+    const startedAt = Date.now();
+
+    const isGeneratingState = () => {
+
+      const sendButton = document.querySelector(sendButtonSelector);
+
+      return !!(
+        sendButton &&
+        (
+          sendButton.getAttribute("data-testid") === "stop-button" ||
+          (sendButton.getAttribute("aria-label") || "").includes("중지") ||
+          (sendButton.getAttribute("aria-label") || "").toLowerCase().includes("stop")
+        )
+      );
+
+    };
+
+    const check = () => {
+
+      if (!isGeneratingState()) {
+        resolve({ success: true });
+        return;
+      }
+
+      if (Date.now() - startedAt > timeoutMs) {
+        console.error("[ChatGPT] composer stayed in generating/stop state past timeout");
+        resolve({ success: false, reason: "composer stayed in generating state past timeout" });
+        return;
+      }
+
+      setTimeout(check, pollMs);
+
+    };
+
+    check();
+
+  });
+
+})();
+`;
+}
+
+/**
+ * v1.3.1 TXT Attachment Mode - a deliberately separate script from
+ * buildPromptScript (never a shared/parameterized version of it), so a
+ * Prompt Library entry with "TXT 첨부 방식" OFF keeps going through
+ * buildPromptScript exactly as before, byte-for-byte unchanged.
+ *
+ * Sends the SAME paste event buildPromptScript's own insertPromptText
+ * dispatches, then verifies EITHER of two ChatGPT-decided outcomes
+ * (never forces one): (A) a new file/document attachment tile appeared
+ * - the expected outcome for a genuinely long prompt, confirmed live -
+ * or (B) the text landed as ordinary inline text instead (ChatGPT chose
+ * not to convert it, e.g. because it was short enough), verified the
+ * same Markdown-autoformat-tolerant way buildPromptScript's own
+ * insertPromptText already does. Either way the actual bytes dispatched
+ * in the paste event are exactly `prompt`, untouched - a file/document
+ * attachment is stored as opaque text and is never re-parsed as rich
+ * text the way inline ProseMirror content is, so TXT mode structurally
+ * cannot suffer the Markdown-autoformat corruption inline paste can.
+ *
+ * A file tile's own aria-label is only a truncated preview (confirmed
+ * live, e.g. "Create a professiona.."), never the full attached text -
+ * this app has no way to read a collapsed tile's full content back out
+ * of the DOM, so verification here confirms the RIGHT tile appeared
+ * (its preview prefix matches the start of `prompt`), not full byte-
+ * for-byte tile content equality.
+ */
+export function buildTxtPromptScript(prompt: string) {
+  return `
+(() => {
+
+  console.log("[ChatGPT] buildTxtPromptScript executing");
+
+  return new Promise((resolve) => {
+
+    const text = ${JSON.stringify(prompt)};
+
+    // Fallback-path tolerance only (Path B below) - identical rules to
+    // buildPromptScript's own insertPromptText, see that function's own
+    // comments for why each pattern is stripped before comparison.
+    const normalizeForCompare = (value) => value.replace(/\\s+/g, " ").trim();
+
+    const stripKnownMarkdownAutoformatLines = (value) => {
+      const lines = value.split("\\n");
+
+      if (lines.length > 0) {
+        lines[0] = lines[0].replace(/^\\d+\\.\\s+/, "");
+      }
+
+      return lines
+        .filter((line) => {
+          const trimmed = line.trim();
+          const isHorizontalRule = /^(-{3,}|\\*{3,}|_{3,})$/.test(trimmed);
+          const isEmptyListMarker = /^[-+*]$/.test(trimmed);
+          return !(isHorizontalRule || isEmptyListMarker);
+        })
+        .join("\\n");
+    };
+
+    const expectedForCompare = normalizeForCompare(stripKnownMarkdownAutoformatLines(text));
+
+    const composerSelector = "#prompt-textarea";
+    const sendButtonSelector = "#composer-submit-button";
+    const userMessageSelector = '[data-message-author-role="user"]';
+    const assistantMessageSelector = '[data-message-author-role="assistant"]';
+
+    // Confirmed live via a real composer.html capture - see this
+    // function's own doc comment above.
+    const fileTileSelector = '[role="group"][aria-label]';
+
+    const editor = document.querySelector(composerSelector);
+
+    if (!editor) {
+      console.error("[ChatGPT] #prompt-textarea not found");
+      resolve({ success: false, step: "textarea-not-found", reason: "prompt-textarea not found" });
+      return;
+    }
+
+    console.log("[ChatGPT] #prompt-textarea found");
+
+    editor.focus();
+
+    // Same shared-partition stale-draft guard as the normal path
+    // (buildPromptScript's own insertPromptText) - see that function's
+    // comment for why this is needed at all.
+    document.execCommand("selectAll", false, undefined);
+    document.execCommand("insertText", false, "");
+
+    const clearTimeoutMs = 2000;
+    const clearPollMs = 50;
+    const clearStartedAt = Date.now();
+
+    let clearedAt = null;
+    let pastedAt = null;
+    let attachedAt = null;
+    let sendButtonFoundAt = null;
+    let sendEnabledAt = null;
+    let sendClickedAt = null;
+    let acceptedAt = null;
+
+    const baselineUserMessageCount = document.querySelectorAll(userMessageSelector).length;
+    const baselineAssistantMessageCount = document.querySelectorAll(assistantMessageSelector).length;
+
+    const isGeneratingState = () => {
+
+      const sendButton = document.querySelector(sendButtonSelector);
+
+      return !!(
+        sendButton &&
+        (
+          sendButton.getAttribute("data-testid") === "stop-button" ||
+          (sendButton.getAttribute("aria-label") || "").includes("중지") ||
+          (sendButton.getAttribute("aria-label") || "").toLowerCase().includes("stop")
+        )
+      );
+
+    };
+
+    let lastObservedGeneratingState = isGeneratingState();
+
+    // Deliberately DOES NOT include buildPromptScript's own
+    // "textarea-empty" signal - confirmed live that in TXT mode
+    // #prompt-textarea is ALREADY empty before Send is even clicked
+    // (the pasted text lives in the file tile, not inline), so that
+    // check would report a false "accepted" on the very first poll
+    // regardless of whether the click actually registered.
+    const checkAccepted = () => {
+
+      if (
+        document.querySelectorAll(userMessageSelector).length >
+        baselineUserMessageCount
+      ) {
+        return "user-message-count-increased";
+      }
+
+      if (
+        document.querySelectorAll(assistantMessageSelector).length >
+        baselineAssistantMessageCount
+      ) {
+        return "assistant-generation-started";
+      }
+
+      const currentGeneratingState = isGeneratingState();
+
+      const becameGenerating = !lastObservedGeneratingState && currentGeneratingState;
+
+      lastObservedGeneratingState = currentGeneratingState;
+
+      if (becameGenerating) {
+        return "send-button-generating-state";
+      }
+
+      return null;
+
+    };
+
+    const maxAttempts = 5;
+    const buttonWaitMs = 5000;
+    const acceptWaitMs = 3000;
+    const pollMs = 50;
+
+    let attempt = 0;
+
+    const attemptSend = () => {
+
+      attempt++;
+
+      console.log("[ChatGPT] TXT send attempt " + attempt + "/" + maxAttempts);
+
+      const buttonWaitStartedAt = Date.now();
+
+      const waitForButton = () => {
+
+        const sendButton = document.querySelector(sendButtonSelector);
+
+        if (sendButton && sendButtonFoundAt === null) {
+          sendButtonFoundAt = Date.now();
+        }
+
+        const isDisabled =
+          sendButton &&
+          (
+            sendButton.disabled ||
+            sendButton.getAttribute("aria-disabled") === "true"
+          );
+
+        if (!sendButton || isDisabled) {
+
+          if (Date.now() - buttonWaitStartedAt > buttonWaitMs) {
+
+            const reason = sendButton
+              ? "send button found but stayed disabled"
+              : "send button not found";
+
+            console.error(
+              "[ChatGPT] #composer-submit-button " +
+              (sendButton ? "disabled" : "not found") +
+              " (TXT attempt " + attempt + ")"
+            );
+
+            resolve({
+              success: false,
+              step: sendButton ? "send-button-disabled" : "send-button-not-found",
+              reason,
+              timeline: { clearedAt, pastedAt, attachedAt, sendButtonFoundAt, sendEnabledAt, sendClickedAt, acceptedAt }
+            });
+            return;
+
+          }
+
+          setTimeout(waitForButton, pollMs);
+          return;
+
+        }
+
+        sendEnabledAt = Date.now();
+
+        sendButton.click();
+
+        sendClickedAt = Date.now();
+
+        console.log("[ChatGPT] TXT send button clicked (attempt " + attempt + ")");
+
+        const acceptWaitStartedAt = Date.now();
+
+        const waitForAcceptance = () => {
+
+          const acceptedBy = checkAccepted();
+
+          if (acceptedBy) {
+            acceptedAt = Date.now();
+            console.log("[ChatGPT] TXT message accepted (" + acceptedBy + ")");
+            resolve({
+              success: true,
+              step: "send-clicked",
+              acceptedBy,
+              timeline: { clearedAt, pastedAt, attachedAt, sendButtonFoundAt, sendEnabledAt, sendClickedAt, acceptedAt }
+            });
+            return;
+          }
+
+          if (Date.now() - acceptWaitStartedAt > acceptWaitMs) {
+
+            console.error(
+              "[ChatGPT] TXT send attempt " + attempt + " not accepted within " + acceptWaitMs + "ms"
+            );
+
+            if (attempt >= maxAttempts) {
+              console.error("[ChatGPT] TXT message not accepted after " + attempt + " attempts");
+              resolve({
+                success: false,
+                step: "send-not-accepted",
+                reason: "message was not accepted by ChatGPT after " + attempt + " attempts",
+                timeline: { clearedAt, pastedAt, attachedAt, sendButtonFoundAt, sendEnabledAt, sendClickedAt, acceptedAt }
+              });
+              return;
+            }
+
+            attemptSend();
+            return;
+
+          }
+
+          setTimeout(waitForAcceptance, pollMs);
+
+        };
+
+        waitForAcceptance();
+
+      };
+
+      waitForButton();
+
+    };
+
+    const waitForClear = () => {
+
+      if (editor.innerText.trim() === "") {
+        clearedAt = Date.now();
+        pasteAsTxt();
+        return;
+      }
+
+      if (Date.now() - clearStartedAt > clearTimeoutMs) {
+        console.error("[ChatGPT] composer did not clear before TXT paste");
+        resolve({
+          success: false,
+          step: "composer-clear-failed",
+          reason: "composer still contained leftover text before TXT paste",
+          timeline: { clearedAt, pastedAt, attachedAt, sendButtonFoundAt, sendEnabledAt, sendClickedAt, acceptedAt }
+        });
+        return;
+      }
+
+      setTimeout(waitForClear, clearPollMs);
+
+    };
+
+    const pasteAsTxt = () => {
+
+      const baselineTileCount = document.querySelectorAll(fileTileSelector).length;
+
+      const dataTransfer = new DataTransfer();
+      dataTransfer.setData("text/plain", text);
+
+      const pasteEvent = new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: dataTransfer
+      });
+
+      editor.dispatchEvent(pasteEvent);
+
+      pastedAt = Date.now();
+
+      const attachTimeoutMs = 20000;
+      const attachPollMs = 200;
+      const attachStartedAt = Date.now();
+
+      const waitForAttached = () => {
+
+        // Path A (expected outcome for a genuinely long TXT-mode
+        // prompt, confirmed live): ChatGPT converted the paste into
+        // its own new file/document tile.
+        const tiles = Array.from(document.querySelectorAll(fileTileSelector));
+
+        if (tiles.length > baselineTileCount) {
+
+          const newTile = tiles[tiles.length - 1];
+          const tileLabel = (newTile.getAttribute("aria-label") || "").trim();
+          const previewPrefix = tileLabel.replace(/\\.{2,}$/, "");
+
+          const contentMatches =
+            previewPrefix.length === 0 ||
+            text.trim().startsWith(previewPrefix);
+
+          if (contentMatches) {
+
+            attachedAt = Date.now();
+            console.log("[ChatGPT] TXT attachment tile detected", { tileLabel });
+            attemptSend();
+            return;
+
+          }
+
+          console.warn(
+            "[ChatGPT] a new file tile appeared but its label did not match this prompt - still waiting",
+            { tileLabel }
+          );
+
+        }
+
+        // Path B (fallback): the prompt was short enough that ChatGPT
+        // did not convert it - it landed as ordinary inline text
+        // instead, same as the normal (non-TXT) path.
+        if (
+          editor.innerText.trim() !== "" &&
+          normalizeForCompare(editor.innerText) === expectedForCompare
+        ) {
+
+          attachedAt = Date.now();
+          console.log("[ChatGPT] TXT prompt landed as normal inline text (below ChatGPT's own attachment threshold)");
+          attemptSend();
+          return;
+
+        }
+
+        if (Date.now() - attachStartedAt > attachTimeoutMs) {
+          console.error("[ChatGPT] neither a TXT attachment tile nor matching inline text appeared after paste");
+          resolve({
+            success: false,
+            step: "txt-attachment-not-detected",
+            reason: "neither a TXT attachment tile nor matching inline text appeared after paste",
+            timeline: { clearedAt, pastedAt, attachedAt, sendButtonFoundAt, sendEnabledAt, sendClickedAt, acceptedAt }
+          });
+          return;
+        }
+
+        setTimeout(waitForAttached, attachPollMs);
+
+      };
+
+      waitForAttached();
+
+    };
+
+    waitForClear();
+
+  });
+
+})();
+`;
+}
+
 const GENERATED_IMAGE_SELECTOR = 'img[src*="/backend-api/estuary/content"]';
 
 // Scoped the same way buildOpenImageViewerScript() below already scopes
@@ -510,6 +1016,57 @@ const GENERATED_IMAGE_SELECTOR = 'img[src*="/backend-api/estuary/content"]';
 // too makes that false match structurally impossible.
 const GENERATED_IMAGE_IN_CONTAINER_SELECTOR =
   '[class*="imagegen-image"] img[src*="/backend-api/estuary/content"]';
+
+/**
+ * v1.3.1 TXT Attachment Mode - confirmed live that ChatGPT's own
+ * response to the attachment-only message is inconsistent: it
+ * sometimes replies with only text ("what would you like me to do?",
+ * requiring the trigger message below), but other times proceeds
+ * straight to generating an image from the attachment alone, with no
+ * trigger needed at all. Sending the trigger unconditionally in that
+ * second case produced a real, confirmed-live duplicate/unwanted 2nd
+ * image. This is a BOUNDED variant of buildWaitImageScript (which
+ * itself is intentionally unbounded and used as-is, untouched, for the
+ * normal 1st-pass path) - used only to check "did an image already
+ * appear on its own" before generate.ts's TXT branch decides whether
+ * to send the trigger message at all.
+ */
+export function buildWaitImageBoundedScript(timeoutMs: number) {
+  return `
+(() => {
+
+  return new Promise((resolve) => {
+
+    const selector = ${JSON.stringify(GENERATED_IMAGE_IN_CONTAINER_SELECTOR)};
+
+    const startCount = document.querySelectorAll(selector).length;
+    const startedAt = Date.now();
+
+    const check = () => {
+
+      const images = Array.from(document.querySelectorAll(selector));
+
+      if (images.length > startCount) {
+        resolve({ success: true });
+        return;
+      }
+
+      if (Date.now() - startedAt > ${JSON.stringify(timeoutMs)}) {
+        resolve({ success: false });
+        return;
+      }
+
+      setTimeout(check, 1000);
+
+    };
+
+    check();
+
+  });
+
+})();
+`;
+}
 
 export function buildWaitImageScript() {
   return `

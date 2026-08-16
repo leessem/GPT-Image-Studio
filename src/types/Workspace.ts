@@ -13,7 +13,14 @@ export type WorkspaceStatus =
     | "waiting"
     | "running"
     | "done"
-    | "error";
+    | "error"
+    /**
+     * v1.3.0 Custom Image Revision: a second-pass edit is in flight on
+     * this Workspace's existing result image - distinct from "running"
+     * (the 1st-pass Prompt Library generation) so the two never get
+     * confused in the status badge or in guard checks below.
+     */
+    | "revising";
 
 export interface Workspace {
 
@@ -78,6 +85,26 @@ export interface Workspace {
      * or neither can be set per Workspace.
      */
     customerNumber?: string;
+
+    /**
+     * Prompt Variable feature (v1.3.1): free-text value substituted for
+     * every {COLOR} occurrence in `prompt` right before sending to
+     * ChatGPT. Only relevant when the selected Prompt's requiresColor
+     * is true; independent of customerName/customerNumber - any
+     * combination can be set per Workspace.
+     */
+    customerColor?: string;
+
+    /**
+     * TXT Attachment Mode (v1.3.1): a denormalized snapshot of the
+     * selected Prompt's own txtAttachmentMode at selection time (same
+     * reasoning as workTypePrefix alongside workTypeId - a later edit
+     * to the Prompt Library entry never changes what an already-
+     * selected Workspace does on Generate). When true, generate.ts
+     * sends this Workspace's prompt via buildTxtPromptScript instead of
+     * buildPromptScript - see generate.ts's own comment at that branch.
+     */
+    txtAttachmentMode?: boolean;
 
 }
 

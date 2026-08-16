@@ -33,6 +33,26 @@ export interface PromptItem {
      */
     requiresNumber: boolean;
 
+    /**
+     * Prompt Variable feature (v1.3.1): same mechanism as requiresName/
+     * requiresNumber, for the third reserved variable {COLOR} - shows a
+     * "색상" input on the Workspace panel, substituted in independently
+     * of requiresName/requiresNumber. Any combination of the three can
+     * be enabled per prompt.
+     */
+    requiresColor: boolean;
+
+    /**
+     * TXT Attachment Mode (v1.3.1): when true, Generate sends this
+     * Prompt via ChatGPT's own native "paste long text as a document
+     * attachment" behavior (buildTxtPromptScript) instead of the normal
+     * inline-paste path (buildPromptScript). Never changes the Prompt
+     * content itself or {NAME}/{NUM}/{COLOR} substitution - only how
+     * the already-substituted text is delivered to ChatGPT. Independent
+     * of requiresName/requiresNumber/requiresColor.
+     */
+    txtAttachmentMode: boolean;
+
 }
 
 /**
@@ -52,15 +72,20 @@ export interface PromptDraft {
 
     requiresNumber: boolean;
 
+    requiresColor: boolean;
+
+    txtAttachmentMode: boolean;
+
 }
 
 /**
  * Settings > Prompt Library Backup export/import shape - deliberately
  * only Title/Prompt/Negative Prompt (no id/timestamps), since an
  * imported prompt is a fresh library entry, not a restored one.
- * `requiresName`/`requiresNumber` are optional so backups written
- * before v1.2.0/v1.2.1 respectively still import correctly - a
- * missing value is treated as false.
+ * `requiresName`/`requiresNumber`/`requiresColor`/`txtAttachmentMode`
+ * are optional so backups written before v1.2.0/v1.2.1/v1.3.1
+ * respectively still import correctly - a missing value is treated as
+ * false.
  */
 export interface PromptExportItem {
 
@@ -73,6 +98,10 @@ export interface PromptExportItem {
     requiresName?: boolean;
 
     requiresNumber?: boolean;
+
+    requiresColor?: boolean;
+
+    txtAttachmentMode?: boolean;
 
 }
 

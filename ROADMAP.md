@@ -1,5 +1,60 @@
 # ROADMAP
 
+## Version 1.3.1 - IN PROGRESS (2026-08-16)
+
+{COLOR} Prompt Variable + per-Prompt TXT Attachment Mode. Consolidates
+with v1.3.0's Custom Image Revision (user-confirmed working, never
+separately tagged) into this one release, same as v1.2.2 was folded
+into v1.2.3 - see WORKLOG Session 30/31 for the full narrative.
+
+- {COLOR}: third reserved Prompt Variable, same mechanism as {NAME}/
+  {NUM} (Prompt Library checkbox -> per-Workspace input -> substituted
+  right before Generate).
+- Per-Prompt "TXT 첨부 방식" checkbox: routes Generate's Send step
+  through a new `buildTxtPromptScript` (ChatGPT.ts) instead of
+  `buildPromptScript`, using ChatGPT's own confirmed-live "long pasted
+  text becomes a document attachment" behavior rather than this app
+  building any file itself. Verified against a real captured DOM
+  snapshot (`composer.html`) from an actual Generate attempt, not
+  assumed - see WORKLOG Session 31 for the investigation.
+- `buildPromptScript` itself (used by normal Generate AND the v1.3.0
+  revise.ts pipeline) is completely unchanged - TXT mode is a fully
+  separate script, selected per-Workspace from the selected Prompt's
+  own setting.
+
+**Verification:** see WORKLOG Session 31.
+
+## Version 1.3.0 - RELEASED (2026-08-16)
+
+Custom Image Revision: a Workspace with a completed result image can
+now be edited a 2nd time with a short custom instruction instead of
+re-running the full Prompt Library prompt.
+
+- Added a "커스텀 수정" button + multi-line instruction box, shown once
+  a Workspace has a saved result image.
+- New, separate pipeline (`src/services/revise.ts`): re-uploads the
+  Workspace's own existing result image, sends only the typed
+  instruction on the same conversation, and reuses the same
+  ChatGPT.ts automation scripts Generate already uses (upload/prompt/
+  viewer/download) - never routed through `runGenerate`, so the
+  verified v1.2.5 1st-pass Generate pipeline is untouched.
+- Revised images are saved with a stacking `+` / `++` / `+++` filename
+  suffix, never overwriting the original or any earlier revision -
+  existing Prefix/Work Type Prefix/Prompt Title filename generation is
+  unchanged.
+- A failed revision keeps the existing result/file and reuses the same
+  status-badge error state Generate already has; no new failure UX.
+
+**Verification:**
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean.
+- `npm run build`: produced `GPT Image Studio v1.3.0 Setup.exe` /
+  `Portable.exe`.
+- `npm run dev` boot check: app starts and stays up, no crash, no new
+  console errors.
+- Live end-to-end test against a real ChatGPT session (Generate ->
+  커스텀 수정 -> `+` file) performed by the user directly in the app -
+  confirmed working.
+
 ## Version 1.2.5 - RELEASED (2026-08-08)
 
 Prompt verification fix, found via a real user-submitted Export

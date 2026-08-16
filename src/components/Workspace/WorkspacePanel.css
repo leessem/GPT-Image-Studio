@@ -44,6 +44,11 @@
     color:#dc2626;
 }
 
+.workspace-status-badge.revising{
+    background:#ede9fe;
+    color:#7c3aed;
+}
+
 .workspace-panel-section{
     display:flex;
     flex-direction:column;
@@ -197,6 +202,28 @@
     color:#dc2626;
 }
 
+.workspace-customer-color-input{
+    height:38px;
+    border:1px solid #c9cdd3;
+    outline:none;
+    border-radius:8px;
+    background:#ffffff;
+    color:#222222;
+    padding:0 10px;
+    font-family:inherit;
+    transition:border-color .15s ease;
+}
+
+.workspace-customer-color-input:focus{
+    border-color:#2563eb;
+}
+
+.workspace-color-required-message{
+    font-size:12px;
+    font-weight:600;
+    color:#dc2626;
+}
+
 .workspace-generate-row{
     display:flex;
     gap:8px;
@@ -251,4 +278,97 @@
     font-weight:600;
     color:#16a34a;
     text-align:center;
+}
+
+.workspace-revise-toggle-button{
+    height:38px;
+    border:1px solid #c9cdd3;
+    border-radius:8px;
+    background:#f3f4f6;
+    color:#222222;
+    font-weight:600;
+    cursor:pointer;
+    transition:background .15s ease;
+}
+
+.workspace-revise-toggle-button:hover:not(:disabled){
+    background:#e5e5e5;
+}
+
+.workspace-revise-toggle-button:disabled{
+    background:#f3f4f6;
+    color:#999999;
+    cursor:not-allowed;
+}
+
+.workspace-revise-input{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+}
+
+.workspace-revise-input textarea{
+    resize:vertical;
+    min-height:70px;
+    border:1px solid #c9cdd3;
+    outline:none;
+    border-radius:8px;
+    background:#ffffff;
+    color:#222222;
+    padding:10px;
+    font-family:inherit;
+    transition:border-color .15s ease;
+}
+
+.workspace-revise-input textarea:focus{
+    border-color:#2563eb;
+}
+
+.workspace-revise-actions{
+    display:flex;
+    gap:8px;
+}
+
+.workspace-revise-submit-button{
+    flex:1;
+    height:38px;
+    border:none;
+    border-radius:8px;
+    background:#2563eb;
+    color:#ffffff;
+    font-weight:600;
+    cursor:pointer;
+    transition:background .15s ease;
+}
+
+.workspace-revise-submit-button:hover:not(:disabled){
+    background:#3b82f6;
+}
+
+.workspace-revise-submit-button:disabled{
+    background:#e5e5e5;
+    color:#999999;
+    cursor:not-allowed;
+}
+
+.workspace-revise-cancel-button{
+    height:38px;
+    padding:0 16px;
+    border:1px solid #c9cdd3;
+    border-radius:8px;
+    background:#f3f4f6;
+    color:#222222;
+    font-weight:600;
+    cursor:pointer;
+    transition:background .15s ease;
+}
+
+.workspace-revise-cancel-button:hover:not(:disabled){
+    background:#e5e5e5;
+}
+
+.workspace-revise-cancel-button:disabled{
+    background:#f3f4f6;
+    color:#999999;
+    cursor:not-allowed;
 }

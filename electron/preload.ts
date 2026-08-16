@@ -60,6 +60,11 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
       ipcRenderer.sendSync("image:armDownload", id, baseName, workTypePrefix);
     },
 
+    // v1.3.0 Custom Image Revision
+    armRevisionDownload(id: string, sourceFilePath: string) {
+      ipcRenderer.sendSync("image:armRevisionDownload", id, sourceFilePath);
+    },
+
     waitForDownload(id: string) {
       return new Promise<string>((resolve, reject) => {
         const handler = (
@@ -84,6 +89,11 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
 
     verifyFile(filePath: string) {
       return ipcRenderer.invoke("image:verifyFile", filePath);
+    },
+
+    // v1.3.0 Custom Image Revision
+    readAsDataUrl(filePath: string) {
+      return ipcRenderer.invoke("image:readAsDataUrl", filePath);
     }
   },
 
@@ -229,11 +239,15 @@ declare global {
       image: {
         armDownload(id: string, baseName: string, workTypePrefix: string): void;
 
+        armRevisionDownload(id: string, sourceFilePath: string): void;
+
         waitForDownload(id: string): Promise<string>;
 
         verifyFile(
           filePath: string
         ): Promise<{ exists: boolean; size: number }>;
+
+        readAsDataUrl(filePath: string): Promise<string>;
       };
 
       browser: {

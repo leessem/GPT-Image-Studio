@@ -54,6 +54,14 @@ export default function PromptModal({
         initial?.requiresNumber ?? false
     );
 
+    const [requiresColor, setRequiresColor] = useState(
+        initial?.requiresColor ?? false
+    );
+
+    const [txtAttachmentMode, setTxtAttachmentMode] = useState(
+        initial?.txtAttachmentMode ?? false
+    );
+
     const handleSave = () => {
 
         onSave({
@@ -67,6 +75,10 @@ export default function PromptModal({
             requiresName,
 
             requiresNumber,
+
+            requiresColor,
+
+            txtAttachmentMode,
 
         });
 
@@ -203,9 +215,44 @@ export default function PromptModal({
 
                 </label>
 
+                <label className="prompt-modal-checkbox-field">
+
+                    <input
+
+                        type="checkbox"
+
+                        checked={requiresColor}
+
+                        onChange={e => setRequiresColor(e.target.checked)}
+
+                    />
+
+                    <span>색상 입력 필요</span>
+
+                </label>
+
+                <label className="prompt-modal-checkbox-field">
+
+                    <input
+
+                        type="checkbox"
+
+                        checked={txtAttachmentMode}
+
+                        onChange={e => setTxtAttachmentMode(e.target.checked)}
+
+                    />
+
+                    <span>TXT 첨부 방식</span>
+
+                </label>
+
                 <p className="prompt-modal-help-text">
-                    ※ 프롬프트에서 {"{NAME}"} 또는 {"{NUM}"} 키워드를 입력하면
-                    자동으로 치환됩니다.
+                    ※ 프롬프트 해당 위치에 {"{NAME}"}, {"{NUM}"}, {"{COLOR}"}를
+                    넣으시오. Generate 시 각 항목에 대응하는 Workspace 입력값으로
+                    자동 치환됩니다. "TXT 첨부 방식"을 켜면 이 Prompt는 일반
+                    붙여넣기 대신 ChatGPT 자체의 문서 첨부 방식으로 전달됩니다
+                    (Prompt 내용은 동일하게 유지됩니다).
                 </p>
 
                 <div className="prompt-modal-actions">
