@@ -2,6 +2,45 @@
 
 All notable changes to GPT Image Studio are documented in this file.
 
+## Version 1.3.2 (2026-08-16)
+
+**Fixed TXT Attachment Mode reliability (Debug Window position, retry
+timing, forced-generation instruction).**
+
+- Moved the Debug Mode floating panel from the bottom-right to the
+  bottom-left corner - it was overlapping the Workspace panel's own
+  Generate/Clear buttons on some window sizes, making them unclickable
+  while Debug Mode was on.
+- Fixed a real bug in `buildTxtPromptScript`'s Send-button wait: when
+  the Send button was found but stayed disabled past its 5-second
+  window, the run failed immediately with no retry. A pasted document
+  attachment can take longer than an image upload to finish settling
+  server-side before Send re-enables - this now retries (same bounded
+  5-attempt budget already used for the "not accepted" case) instead
+  of failing the whole run on one slow attempt.
+- Fixed the real root cause of TXT mode's inconsistent behavior
+  (sometimes generating normally, sometimes only getting a text reply,
+  confirmed by live user testing): ChatGPT does not reliably treat a
+  document/file attachment's content as an image-generation
+  instruction on its own. Every TXT-mode Prompt's text now
+  automatically gets a fixed instruction line prepended before it's
+  attached, telling ChatGPT explicitly to treat it as a prompt and
+  generate an image. This line is shown as a locked, non-editable
+  banner above the Prompt field in the Prompt Library editor whenever
+  "TXT 첨부 방식" is checked - it cannot be edited or removed per-
+  Prompt, and the exact same constant is what generate.ts actually
+  sends, so the editor preview always matches real behavior.
+- Removed v1.3.1's separate TXT-mode follow-up "trigger" message
+  entirely, per live user testing: now that the forced instruction
+  above makes the attachment message itself reliably generate on its
+  own, the extra trigger message could race with that generation and
+  occasionally produce an unwanted duplicate 2nd image. TXT mode now
+  sends one message (image + forced-instruction-prefixed text) and
+  waits for its generation, the same shape as the normal path.
+- No changes to the normal (non-TXT) Generate path, Custom Image
+  Revision, {NAME}/{NUM}/{COLOR} substitution, Work Type, or Backup/
+  Restore.
+
 ## Version 1.3.1 (2026-08-16)
 
 **Added {COLOR} Prompt Variable and per-Prompt TXT Attachment Mode.**

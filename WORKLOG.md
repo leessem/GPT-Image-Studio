@@ -3714,3 +3714,158 @@ investigation possible) is identical either way.
 - Live user test of normal (non-TXT) Generate and one TXT-mode Generate
   against the real, exact long test Prompt: pending user confirmation
   before build/commit/tag/push/release (see final report).
+
+---
+
+## Session 33 (2026-08-16): Version 1.3.2 - TXT Attachment Mode
+reliability fixes, found via real user testing after v1.3.1's release
+
+v1.3.0 and v1.3.1 were committed, tagged, and pushed after the user
+installed and tested v1.3.1 and reported no problems. The user then
+hit real TXT Attachment Mode failures in normal use and reported them
+live over this session - three separate bugs, all confirmed against
+the actual running app (not guessed), fixed one at a time.
+
+### Bug 1: Debug Window blocked the Generate button
+
+The user reported Debug Mode's floating panel prevented clicking
+Generate. `DebugWindow.css`'s `.debug-window` is `position: fixed;
+right: 16px; bottom: 16px` - the same bottom-right corner the
+Workspace panel's own Generate/Clear buttons can end up in depending
+on window height/content, and the panel's `pointer-events: auto`
+intercepts clicks meant for whatever sits underneath it. Per the
+user's explicit instruction, moved it to the bottom-left corner
+(`left: 16px` instead of `right: 16px`) - a one-line CSS change, no
+other layout touched.
+
+### Investigation: TXT mode hanging/erroring inconsistently
+
+The user reported TXT Attachment Mode's behavior was unpredictable:
+sometimes a normal image generation, sometimes only a text reply
+asking for more information, sometimes the image+text attachment sent
+successfully but the run then errored out. Diagnosed using the app's
+own existing Debug Mode panel (Stage/Last Error), not guessed:
+
+- **First hypothesis (wrong, ruled out by the user):** that the
+  Workspace's 이름/CHAPTER/색상 fields were empty at Generate time,
+  since one captured case showed ChatGPT asking for exactly those 3
+  values (matching {NAME}/{NUM}/{COLOR}). The user confirmed filling
+  all three fields did not change the outcome - separately, the user
+  also identified *why* that first test had empty fields: Debug Mode's
+  panel (still bottom-right at the time) was covering the Generate
+  button, so the fields genuinely couldn't be filled before that
+  particular click. Both threads resolved by Bug 1's fix above plus
+  ruling this out as the real cause.
+- **Bug 2, confirmed via Debug Window (Stage: "Send Button Found",
+  Last Error: "send-button-disabled: send button..."):**
+  `buildTxtPromptScript`'s own `attemptSend()` has a `waitForButton()`
+  that, when the Send button is found but stays disabled past its
+  fixed `buttonWaitMs` (5000ms), resolves failure immediately with **no
+  retry** - retry only exists for the separate "clicked but not
+  accepted" case below it. A pasted document/file attachment can take
+  longer than a plain image upload to finish settling server-side
+  before ChatGPT re-enables Send; hitting that timing produces exactly
+  this error, intermittently. The identical structural pattern exists
+  in the normal (non-TXT) `buildPromptScript` too, but was never
+  observed there - very likely because a plain image upload settles
+  well within 5 seconds in practice, so this untouched-parallel-bug
+  never explicitly needed to be checked or fixed here per the reported
+  scope (TXT mode only).
+  - **Fix (TXT-mode script only):** on the disabled-button timeout,
+    retry via `attemptSend()` again (same bounded `maxAttempts = 5`
+    budget already used for the not-accepted case) instead of failing
+    outright on the first slow window. `buildPromptScript` itself was
+    not touched.
+- **Bug 3, the real root cause, found via the user's own live
+  experiment:** the user manually added an explicit instruction -
+  "(Important) When GPT recognizes this text, treat it as a prompt and
+  generate an image for it" - to the top of a TXT-mode Prompt's text
+  and confirmed image generation then fired reliably. This confirms
+  ChatGPT does not consistently treat a document/file attachment's
+  content as an image-generation instruction on its own, even with
+  `{NAME}`/`{NUM}`/`{COLOR}` already substituted with real values -
+  matching every one of the three previously-inconsistent outcomes
+  (generates fine / asks a clarifying question / attaches then the
+  automation eventually fails waiting for something that will never
+  come).
+  - **Fix, per explicit user instruction:** added
+    `TXT_ATTACHMENT_FORCE_INSTRUCTION` (`ChatGPT.ts`) - the user's
+    exact confirmed-working line, verbatim. `generate.ts` now prepends
+    it (`` `${TXT_ATTACHMENT_FORCE_INSTRUCTION}\n\n${substitutedPrompt}`
+    ``) to every TXT-mode Prompt's substituted text before it's passed
+    into `buildTxtPromptScript` - so it is always sent, for every
+    TXT-mode Prompt, with no per-Prompt opt-out.
+  - Per the user's explicit instruction ("txt 체크버튼을 누르면 이
+    문구가 자동으로 상단에 입력이 되고 임의로 삭제나 변경이
+    안되게 해줘"), `PromptModal.tsx` now renders this exact constant as
+    a locked, non-editable banner (`.prompt-modal-locked-line`,
+    `Prompt.css`) directly above the Prompt textarea whenever "TXT
+    첨부 방식" is checked. It is deliberately **not** stored inside
+    `PromptItem.prompt`/`PromptDraft.prompt` itself - keeping it out of
+    the editable text's own state is what makes it structurally
+    impossible to edit or delete from the Prompt Library UI, rather
+    than trying to protect a substring inside an ordinary editable
+    `<textarea>`. The banner and `generate.ts`'s prepend both read the
+    same exported constant, so the editor's preview can never drift
+    from what is actually sent.
+  - `revise.ts` (v1.3.0's Custom Image Revision) never uses
+    `txtAttachmentMode`/`buildTxtPromptScript` at all - confirmed by
+    reading the file; no change needed or made there.
+
+### Bug 4, found immediately after the user live-tested Bug 3's fix:
+the follow-up trigger message now causes an unwanted duplicate image
+
+The user confirmed live that Bug 3's forced-instruction fix worked
+("잘됨"), then, once a production build was already in progress, the
+user reported the trigger message added in v1.3.1 was itself now
+causing a *second*, unwanted generation right after the first
+("트리거로 인해 갑자기 또 만들어") and asked to remove the trigger
+entirely ("트리거는 빼는게 좋을거 같아").
+
+This is exactly the race the trigger's own doc comment had already
+called out as a known risk ("sending the trigger unconditionally...
+produced a real, confirmed-live duplicate/unwanted 2nd image") - the
+10-second bounded check (`buildWaitImageBoundedScript`) meant to guard
+against it evidently isn't a wide enough window against real
+generation timing. With Bug 3's forced instruction now making the
+attachment message alone reliably generate on its own, the trigger
+message is no longer needed at all, so - per the user's explicit
+instruction - removed it rather than trying to re-tune the race
+window:
+
+- `generate.ts`: deleted the entire TXT-mode branch that waited for
+  the composer to go idle, bounded-checked for an already-generated
+  image, and conditionally sent `TXT_ATTACHMENT_TRIGGER_MESSAGE` as a
+  follow-up. Step 4 ("wait for image generation") no longer has a
+  `txtImageAlreadyDetected` skip condition - TXT mode now flows through
+  exactly the same single `buildWaitImageScript()` wait the normal
+  path already uses, right after the one attachment message is sent.
+- `ChatGPT.ts`: deleted `TXT_ATTACHMENT_TRIGGER_MESSAGE`,
+  `buildWaitForComposerIdleScript`, and `buildWaitImageBoundedScript`
+  (and its now-single-use-only `GENERATED_IMAGE_IN_CONTAINER_SELECTOR`
+  stayed, since `buildWaitImageScript` still needs it) - confirmed via
+  grep these had no other callers before deleting, per the project's
+  own "if unused, delete completely" rule rather than leaving them as
+  dead code.
+- `buildTxtPromptScript` itself (the initial attachment-message send +
+  Bug 2's retry fix) is unchanged - only the follow-up-trigger logic
+  that used to run after it is gone.
+
+### Verification
+
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean after every
+  fix in this session, including after the Bug 4 trigger removal.
+- `package.json` 1.3.1 -> 1.3.2.
+- Bug 1 (Debug Window position), Bug 3's root cause (forced
+  instruction), and Bug 4 (trigger causing a duplicate image) were all
+  confirmed directly against the real, running app by the user, live -
+  not simulated or guessed. Bug 2 (Send-button retry) was diagnosed
+  from the user's exact Debug Window capture
+  ("send-button-disabled: send button...") and is a structural,
+  read-the-code fix (single fixed-timeout-with-no-retry bug); not
+  independently re-confirmed live on its own, since Bug 4's later
+  trigger removal changed the surrounding code it sits in - the retry
+  logic itself (bounded, same pattern as the existing not-accepted
+  case) is a low-risk, easily-reverted addition either way.
+- No changes to normal (non-TXT) Generate, `revise.ts`, {NAME}/{NUM}/
+  {COLOR} substitution itself, Work Type, or Backup/Restore.

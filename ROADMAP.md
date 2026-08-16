@@ -1,6 +1,35 @@
 # ROADMAP
 
-## Version 1.3.1 - IN PROGRESS (2026-08-16)
+## Version 1.3.2 - IN PROGRESS (2026-08-16)
+
+TXT Attachment Mode reliability fixes, found via live user testing of
+v1.3.1's TXT mode after release.
+
+- Debug Window relocated bottom-right -> bottom-left (was overlapping
+  and blocking the Workspace panel's own Generate/Clear buttons).
+- `buildTxtPromptScript`'s Send-button-disabled path now retries
+  (bounded, same 5-attempt budget as the "not accepted" case) instead
+  of failing immediately - a pasted document attachment can take
+  longer than an image upload to finish settling before Send
+  re-enables.
+- Root cause of TXT mode's inconsistent generate/text-only/error
+  behavior: ChatGPT does not reliably treat a document attachment's
+  content as an image-generation instruction by itself. Fixed by
+  prepending a fixed, non-editable instruction line
+  (`TXT_ATTACHMENT_FORCE_INSTRUCTION` in ChatGPT.ts) to every TXT-mode
+  Prompt's text before it's attached - user-verified live to make
+  generation fire reliably. Shown as a locked banner in the Prompt
+  Library editor so what's shown always matches what's actually sent.
+- Removed v1.3.1's separate follow-up "trigger" message and its
+  bounded already-generated check entirely - with the forced
+  instruction above, the attachment message alone reliably generates,
+  and keeping the trigger around caused a live-confirmed duplicate 2nd
+  generation. TXT mode's pipeline is now the same shape as the normal
+  path: one message in, one `buildWaitImageScript()` wait.
+
+**Verification:** see WORKLOG Session 33.
+
+## Version 1.3.1 - RELEASED (2026-08-16)
 
 {COLOR} Prompt Variable + per-Prompt TXT Attachment Mode. Consolidates
 with v1.3.0's Custom Image Revision (user-confirmed working, never

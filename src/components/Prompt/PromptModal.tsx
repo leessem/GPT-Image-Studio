@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 
 import { PromptDraft, PromptItem } from "../../types/Prompt";
+import { TXT_ATTACHMENT_FORCE_INSTRUCTION } from "../Browser/ChatGPT";
 
 interface PromptModalProps {
 
@@ -159,6 +160,20 @@ export default function PromptModal({
 
                     <span>Prompt</span>
 
+                    {txtAttachmentMode && (
+
+                        // Locked, not part of `prompt`'s own editable state -
+                        // see ChatGPT.ts's TXT_ATTACHMENT_FORCE_INSTRUCTION
+                        // doc comment for why this can never be edited or
+                        // deleted per-Prompt. generate.ts prepends the exact
+                        // same constant to the actual text sent, so this is
+                        // a preview of real behavior, not just a UI label.
+                        <div className="prompt-modal-locked-line">
+                            {TXT_ATTACHMENT_FORCE_INSTRUCTION}
+                        </div>
+
+                    )}
+
                     <textarea
 
                         value={prompt}
@@ -252,7 +267,9 @@ export default function PromptModal({
                     넣으시오. Generate 시 각 항목에 대응하는 Workspace 입력값으로
                     자동 치환됩니다. "TXT 첨부 방식"을 켜면 이 Prompt는 일반
                     붙여넣기 대신 ChatGPT 자체의 문서 첨부 방식으로 전달됩니다
-                    (Prompt 내용은 동일하게 유지됩니다).
+                    (Prompt 내용은 동일하게 유지됩니다). 이때 상단에 표시되는
+                    고정 지시문은 이미지 생성을 확실히 트리거하기 위해 항상
+                    자동으로 함께 전송되며, 수정하거나 뺄 수 없습니다.
                 </p>
 
                 <div className="prompt-modal-actions">

@@ -15,9 +15,7 @@ import { applyPromptVariables } from "../utils/promptVariables";
 import {
     buildPromptScript,
     buildTxtPromptScript,
-    TXT_ATTACHMENT_TRIGGER_MESSAGE,
-    buildWaitForComposerIdleScript,
-    buildWaitImageBoundedScript,
+    TXT_ATTACHMENT_FORCE_INSTRUCTION,
     buildWaitImageScript,
     buildOpenImageViewerScript,
     buildWaitImageViewerScript,
@@ -254,14 +252,6 @@ export async function runGenerate({
 
     onStart?.();
 
-    // v1.3.1 TXT Attachment Mode: set true if the TXT branch's own
-    // bounded check below already found an image generated straight
-    // from the attachment message alone (no trigger needed) - guards
-    // Step 4 below from waiting on ANOTHER image that will never come
-    // (its own baseline would start counting from the one already
-    // found, i.e. wait for a 2nd, unwanted image).
-    let txtImageAlreadyDetected = false;
-
     try {
 
         onUpdate(w => ({ ...w, status: "running" }));
@@ -464,7 +454,7 @@ export async function runGenerate({
         // Workspace Ready) is identical either way - this is the only
         // branch point.
         const promptScript = workspace.txtAttachmentMode
-            ? buildTxtPromptScript(substitutedPrompt)
+            ? buildTxtPromptScript(`${TXT_ATTACHMENT_FORCE_INSTRUCTION}\n\n${substitutedPrompt}`)
             : buildPromptScript(substitutedPrompt);
 
         const promptResult = await browser.execute(
@@ -574,116 +564,6 @@ export async function runGenerate({
         );
 
         // =====================================================================
-        // v1.3.1 TXT Attachment Mode: confirmed live that a message
-        // containing ONLY a file/document attachment (no inline text)
-        // is treated by ChatGPT as reference material to discuss, not
-        // an instruction to act on - it replies asking what to do
-        // instead of generating an image. A short, fixed, non-Prompt-
-        // Library follow-up message (sent as a completely ordinary
-        // buildPromptScript send - it's short enough to never trigger
-        // ChatGPT's own document-attachment conversion) is what
-        // actually gets it to act on the attachment just sent above.
-        // =====================================================================
-
-        if (workspace.txtAttachmentMode) {
-
-            // Confirmed live: right after the attachment message is
-            // accepted, ChatGPT's own reply to it ("what would you
-            // like me to do?") can still be actively streaming -
-            // #composer-submit-button sits in its "stop generation"
-            // state during that time, which is clickable but is NOT
-            // the normal Send action. Attempting the trigger send
-            // immediately risked that click landing on "stop" instead
-            // of "send", leaving the typed trigger text sitting unsent
-            // in the composer (confirmed live via a real screenshot).
-            const idleResult = await browser.execute(
-                buildWaitForComposerIdleScript()
-            ) as { success: boolean; reason?: string } | undefined;
-
-            if (!idleResult?.success) {
-
-                console.error(
-                    `[Generate] FAILED waiting for composer to leave generating state before TXT trigger: ${idleResult?.reason ?? "no result"}`
-                );
-
-                raiseError("txt-trigger-composer-not-idle", {
-                    detail: idleResult?.reason ?? "no result",
-                });
-
-                return;
-
-            }
-
-            // Confirmed live: ChatGPT's own reaction to the attachment-
-            // only message is inconsistent - it sometimes replies with
-            // text only (needs the trigger below), but other times
-            // proceeds straight to generating an image from the
-            // attachment alone with no trigger needed at all. Sending
-            // the trigger unconditionally in that second case produced
-            // a real, confirmed-live duplicate/unwanted 2nd image - so
-            // check first whether an image already appeared on its own
-            // before ever sending the trigger.
-            const alreadyGenerated = await browser.execute(
-                buildWaitImageBoundedScript(10000)
-            ) as { success: boolean } | undefined;
-
-            if (alreadyGenerated?.success) {
-
-                txtImageAlreadyDetected = true;
-
-                console.log("[Generate] TXT attachment mode - image already generated from the attachment alone, skipping trigger message");
-
-                logPipelineStage(debugSessionId, workspace.id, "TXT Image Generated Without Trigger");
-
-            }
-            else {
-
-                console.log("[Generate] TXT attachment mode - sending follow-up trigger message");
-
-                const triggerResult = await browser.execute(
-                    buildPromptScript(TXT_ATTACHMENT_TRIGGER_MESSAGE)
-                ) as { success: boolean; step?: string; reason?: string; acceptedBy?: string } | undefined;
-
-                if (!triggerResult?.success) {
-
-                    console.error(
-                        `[Generate] FAILED to send TXT trigger message at step "${triggerResult?.step}": ${triggerResult?.reason ?? "no result"}`
-                    );
-
-                    const clearResult = await browser.execute(
-                        buildClearComposerScript()
-                    ) as { success: boolean; reason?: string } | undefined;
-
-                    if (!clearResult?.success) {
-
-                        console.error(
-                            "[Generate] composer clear-after-failure did not complete:",
-                            clearResult?.reason ?? "no result"
-                        );
-
-                    }
-
-                    raiseError(triggerResult?.step ?? "txt-trigger-send-failed", {
-                        detail: triggerResult?.reason ?? "no result",
-                    });
-
-                    return;
-
-                }
-
-                logPipelineStage(debugSessionId, workspace.id, "TXT Trigger Message Sent", {
-                    acceptedBy: triggerResult.acceptedBy,
-                });
-
-                console.log(
-                    `[Generate] OK - TXT trigger message sent, accepted (${triggerResult.acceptedBy})`
-                );
-
-            }
-
-        }
-
-        // =====================================================================
         // Capture this Workspace's own conversation URL, once.
         // =====================================================================
 
@@ -714,31 +594,21 @@ export async function runGenerate({
 
         // =====================================================================
         // 4. Wait for image generation
-        //
-        // Skipped when the TXT branch above already found the image
-        // (generated from the attachment alone, no trigger needed) -
-        // calling buildWaitImageScript() again here would start a
-        // fresh baseline AT that already-generated image and wait for
-        // a second, unwanted one that will never come.
         // =====================================================================
 
-        if (!txtImageAlreadyDetected) {
+        const waitResult = await browser.execute(
 
-            const waitResult = await browser.execute(
+            buildWaitImageScript()
 
-                buildWaitImageScript()
+        ) as { success: boolean } | undefined;
 
-            ) as { success: boolean } | undefined;
+        if (!waitResult?.success) {
 
-            if (!waitResult?.success) {
+            console.error("[Generate] FAILED - image generation was not detected");
 
-                console.error("[Generate] FAILED - image generation was not detected");
+            raiseError("image-generation-not-detected");
 
-                raiseError("image-generation-not-detected");
-
-                return;
-
-            }
+            return;
 
         }
 

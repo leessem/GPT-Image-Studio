@@ -522,89 +522,21 @@ ${buildInsertPromptTextSnippet(prompt)}
 // ============================================================================
 
 /**
- * v1.3.1 TXT Attachment Mode - confirmed live that ChatGPT treats a
- * message containing ONLY a file/document attachment (no inline text)
- * as reference material to discuss, not as an instruction to act on -
- * it replies asking what to do with it instead of generating an image.
- * A fixed, non-Prompt-Library, app-level trigger sent as a short,
- * ordinary follow-up message (via buildPromptScript itself - short
- * enough to never trigger ChatGPT's own document-attachment
- * conversion) is what actually gets it to act on the just-attached
- * Prompt. This string is never stored in, editable from, or unique
- * per Prompt Library entry - every TXT-mode Generate sends the exact
- * same trigger, right after the attachment message itself is
- * confirmed accepted (see generate.ts's own TXT branch).
+ * v1.3.2 TXT Attachment Mode - confirmed live (user-reported, then
+ * user-verified) that ChatGPT does not reliably treat a pasted-as-
+ * document Prompt's content as an image-generation instruction on its
+ * own - it can just reply discussing it instead. Prepending this fixed
+ * line to the front of the attached text itself is what made
+ * generation fire reliably, replacing v1.3.1's separate follow-up
+ * trigger message (which itself could race with ChatGPT's own timing
+ * and occasionally produce a duplicate 2nd image - see WORKLOG Session
+ * 33/34). Locked - never part of a Prompt Library entry's own editable
+ * `prompt` field (see PromptModal.tsx's read-only banner); generate.ts
+ * prepends it to every TXT-mode Prompt's substituted text right before
+ * it's pasted, so it can never be edited out or omitted per-Prompt.
  */
-export const TXT_ATTACHMENT_TRIGGER_MESSAGE = "텍스트 내용대로 이미지를 만들어줘";
-
-/**
- * v1.3.1 TXT Attachment Mode - confirmed live: right after the
- * attachment message is accepted, ChatGPT's own response to it (its
- * "what would you like me to do?" reply) is often still actively
- * streaming, and #composer-submit-button is in its "stop generation"
- * state during that time - clickable, but NOT the normal Send action.
- * Immediately pasting+clicking the trigger message into that state
- * (as buildPromptScript's own generic waitForButton would, since a
- * stop-button is not `disabled`) either stops the in-progress reply
- * instead of sending, or otherwise never actually submits the typed
- * text - confirmed live as "trigger text gets typed but never sent".
- * This waits for that button to leave its generating/stop state
- * before generate.ts's TXT branch calls buildPromptScript for the
- * trigger message - a TXT-mode-specific ordering fix, kept out of
- * buildPromptScript itself so the normal 1st-pass Generate/revise.ts
- * paths (which only ever send one message, never back-to-back) are
- * completely unaffected.
- */
-export function buildWaitForComposerIdleScript() {
-  return `
-(() => {
-
-  return new Promise((resolve) => {
-
-    const sendButtonSelector = "#composer-submit-button";
-    const timeoutMs = 60000;
-    const pollMs = 200;
-    const startedAt = Date.now();
-
-    const isGeneratingState = () => {
-
-      const sendButton = document.querySelector(sendButtonSelector);
-
-      return !!(
-        sendButton &&
-        (
-          sendButton.getAttribute("data-testid") === "stop-button" ||
-          (sendButton.getAttribute("aria-label") || "").includes("중지") ||
-          (sendButton.getAttribute("aria-label") || "").toLowerCase().includes("stop")
-        )
-      );
-
-    };
-
-    const check = () => {
-
-      if (!isGeneratingState()) {
-        resolve({ success: true });
-        return;
-      }
-
-      if (Date.now() - startedAt > timeoutMs) {
-        console.error("[ChatGPT] composer stayed in generating/stop state past timeout");
-        resolve({ success: false, reason: "composer stayed in generating state past timeout" });
-        return;
-      }
-
-      setTimeout(check, pollMs);
-
-    };
-
-    check();
-
-  });
-
-})();
-`;
-}
+export const TXT_ATTACHMENT_FORCE_INSTRUCTION =
+  "(Important) When GPT recognizes this text, treat it as a prompt and generate an image for it";
 
 /**
  * v1.3.1 TXT Attachment Mode - a deliberately separate script from
@@ -805,12 +737,26 @@ export function buildTxtPromptScript(prompt: string) {
               " (TXT attempt " + attempt + ")"
             );
 
-            resolve({
-              success: false,
-              step: sendButton ? "send-button-disabled" : "send-button-not-found",
-              reason,
-              timeline: { clearedAt, pastedAt, attachedAt, sendButtonFoundAt, sendEnabledAt, sendClickedAt, acceptedAt }
-            });
+            // Confirmed live: unlike an image upload, ChatGPT's own
+            // server-side processing of a pasted document attachment
+            // can occasionally take longer than a single buttonWaitMs
+            // window to finish settling, leaving Send disabled past
+            // it - retrying (same bounded maxAttempts as the
+            // not-accepted case below) gives it another window instead
+            // of failing the whole run on one slow attempt.
+            if (attempt >= maxAttempts) {
+
+              resolve({
+                success: false,
+                step: sendButton ? "send-button-disabled" : "send-button-not-found",
+                reason: reason + " after " + attempt + " attempts",
+                timeline: { clearedAt, pastedAt, attachedAt, sendButtonFoundAt, sendEnabledAt, sendClickedAt, acceptedAt }
+              });
+              return;
+
+            }
+
+            attemptSend();
             return;
 
           }
@@ -1016,57 +962,6 @@ const GENERATED_IMAGE_SELECTOR = 'img[src*="/backend-api/estuary/content"]';
 // too makes that false match structurally impossible.
 const GENERATED_IMAGE_IN_CONTAINER_SELECTOR =
   '[class*="imagegen-image"] img[src*="/backend-api/estuary/content"]';
-
-/**
- * v1.3.1 TXT Attachment Mode - confirmed live that ChatGPT's own
- * response to the attachment-only message is inconsistent: it
- * sometimes replies with only text ("what would you like me to do?",
- * requiring the trigger message below), but other times proceeds
- * straight to generating an image from the attachment alone, with no
- * trigger needed at all. Sending the trigger unconditionally in that
- * second case produced a real, confirmed-live duplicate/unwanted 2nd
- * image. This is a BOUNDED variant of buildWaitImageScript (which
- * itself is intentionally unbounded and used as-is, untouched, for the
- * normal 1st-pass path) - used only to check "did an image already
- * appear on its own" before generate.ts's TXT branch decides whether
- * to send the trigger message at all.
- */
-export function buildWaitImageBoundedScript(timeoutMs: number) {
-  return `
-(() => {
-
-  return new Promise((resolve) => {
-
-    const selector = ${JSON.stringify(GENERATED_IMAGE_IN_CONTAINER_SELECTOR)};
-
-    const startCount = document.querySelectorAll(selector).length;
-    const startedAt = Date.now();
-
-    const check = () => {
-
-      const images = Array.from(document.querySelectorAll(selector));
-
-      if (images.length > startCount) {
-        resolve({ success: true });
-        return;
-      }
-
-      if (Date.now() - startedAt > ${JSON.stringify(timeoutMs)}) {
-        resolve({ success: false });
-        return;
-      }
-
-      setTimeout(check, 1000);
-
-    };
-
-    check();
-
-  });
-
-})();
-`;
-}
 
 export function buildWaitImageScript() {
   return `

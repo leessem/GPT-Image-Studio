@@ -121,6 +121,18 @@
     min-height:70px;
 }
 
+.prompt-modal-locked-line{
+    border:1px solid #c9cdd3;
+    border-radius:8px;
+    background:#eef0f3;
+    color:#555555;
+    padding:8px 10px;
+    font-size:12px;
+    line-height:1.4;
+    cursor:not-allowed;
+    user-select:none;
+}
+
 .prompt-modal-checkbox-field{
     display:flex;
     align-items:center;
