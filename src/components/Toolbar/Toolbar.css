@@ -16,6 +16,18 @@
     font-size:18px;
     font-weight:700;
 
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+
+}
+
+.toolbar-version{
+
+    color:#999999;
+    font-size:12px;
+    font-weight:500;
+
 }
 
 .toolbar-buttons{

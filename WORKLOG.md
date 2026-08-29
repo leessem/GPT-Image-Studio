@@ -4009,3 +4009,208 @@ verification was user-driven rather than fully automated.
   구현이 잘된거 같아" (looks well implemented), followed by the one
   preview-precedence request folded in above.
 - `package.json` 1.3.2 -> 1.4.0, per explicit user instruction.
+
+## Session 35 (2026-08-29): Version 1.4.1 - Multi Image Upload
+
+Extends a Workspace from exactly one uploaded image to up to 5
+(1 primary + up to 4 additional), uploaded to ChatGPT in selection
+order for one combined Generate - without touching the existing
+single-image Upload -> Prompt -> Generate pipeline. Spec explicitly
+required the existing 1-image flow stay byte-for-byte unchanged, no
+unrelated refactoring, and no changes to prompt insertion/
+verification/TXT mode.
+
+### Investigation
+
+Read the current (V1.0 Workspace-only, not the stale Project/Tabs/Job
+architecture CLAUDE.md still describes) architecture before touching
+anything: `types/Workspace.ts`, `services/WorkspaceService.ts`,
+`services/generate.ts`, `components/Workspace/Workspace.tsx` +
+`WorkspacePanel.tsx`, `components/Browser/ChatGPT.ts`'s upload scripts,
+and `services/revise.ts` (to confirm it also calls
+`buildWaitUploadScript` and would be affected by a signature change).
+Confirmed: Workspace state (images included) is runtime-only and was
+already never persisted - Backup/Restore only ever covers the Prompt
+Library + Work Type list (`Settings.tsx`) - so the spec's Backup/
+Restore compatibility concern doesn't apply to this feature at all.
+
+### Implementation
+
+- `src/types/Workspace.ts`: added `additionalImages?: string[]` -
+  data: URLs uploaded after the primary
+  (`croppedImagePath ?? uploadedImagePath`), in order. Undefined/empty
+  by default, so an untouched Workspace is identical to before.
+- `src/services/WorkspaceService.ts`: added `MAX_ADDITIONAL_IMAGES = 4`,
+  `addWorkspaceAdditionalImage` (no-ops without a primary image or at
+  the cap), `removeWorkspaceAdditionalImage` (by index, no re-sort).
+  `setWorkspaceUploadedImage` now also clears `additionalImages` on
+  every call (원본 교체/삭제), same reasoning already applied there to
+  `cropRect`/`croppedImagePath` in v1.4.0 - a stale image set must
+  never survive a changed primary.
+- `src/components/Browser/ChatGPT.ts`: `buildWaitUploadScript` gained
+  an `expectedCount = 1` parameter - switched its internal
+  `querySelector` to `querySelectorAll(...).length >= expectedCount`.
+  Default `1` is exactly the old querySelector-truthy check, so every
+  existing caller (`revise.ts`, and Generate's own single-image case)
+  is unaffected.
+- `src/services/generate.ts`: replaced the single `activeImagePath`
+  upload block with a loop over `activeImages = [primary,
+  ...additionalImages]`, uploading one at a time
+  (`buildUploadImageScript(imagePath, fileName)` ->
+  `buildWaitUploadScript(imageIndex + 1)` -> next), per spec ("동시에
+  여러 개를 무리하게 업로드하지 않는다"). A 1-element `activeImages`
+  (the normal case today) produces the exact same two script calls as
+  before (`"upload.png"` filename, `buildWaitUploadScript(1)`). Any
+  upload/wait failure at any index raises the same `raiseError` path
+  as before, now carrying `imageIndex`/`imageCount` for diagnosis. The
+  post-Generate Ready-reset now also clears `additionalImages`
+  alongside the already-cleared primary/Crop fields.
+- `src/components/Workspace/WorkspacePanel.tsx`: new "이미지 추가"
+  button + thumbnail list (order badge `2`-`5`, per-item 삭제),
+  rendered only inside the existing uploaded-primary-image branch - a
+  Workspace with no primary image still shows only the original
+  dropzone, untouched. Reads each newly-selected file via `FileReader`
+  sequentially (`await`ed in a `for...of`, not `Promise.all`) so
+  selection order is preserved even under concurrent reads finishing
+  out of order. `MAX_ADDITIONAL_IMAGES` imported from
+  `WorkspaceService` so the UI cap and the service-layer cap can never
+  drift apart.
+- `src/components/Workspace/Workspace.tsx`: added
+  `onAddAdditionalImage`/`onRemoveAdditionalImage`, wired the same way
+  as every other per-Workspace setter in this file
+  (`setWorkspacesLogged` + a `WorkspaceService` function keyed by
+  `currentWorkspace.id`) - so this feature is covered by the same
+  WS-AUDIT clobber-detection logging as everything else, and inherits
+  the existing per-Workspace isolation (nothing new needed there - a
+  Workspace's `additionalImages` lives on that Workspace's own object,
+  same as every other field).
+- `src/components/Workspace/WorkspacePanel.css`: new
+  `.workspace-additional-images*` rules, matching the existing panel's
+  visual language (same border/radius/color tokens as the Crop status
+  line and image-action buttons already in this file).
+
+### Verification
+
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean.
+- `npx vite build` (renderer + electron main + preload): clean, no
+  new warnings.
+- `npm run dev` boot check: app starts and stays up; only the
+  pre-existing, unrelated Windows Chromium GPU-disk-cache
+  `ERROR:cache_util_win.cc`/`gpu_disk_cache.cc` lines appeared (seen in
+  every prior session's dev boot on this machine, unrelated to any
+  app code) - no new console errors.
+- **Not live-tested against a real ChatGPT session.** Per this
+  project's own established policy (this app's UI must never be
+  driven with blind/simulated screen-coordinate clicks - see the
+  v1.4.0 session above, where exactly that approach on this same
+  machine briefly clicked into an unrelated window), the actual
+  multi-image upload/ordering/Generate behavior in a real ChatGPT
+  conversation still needs to be verified live by the user before this
+  is marked RELEASED in ROADMAP.md.
+- `package.json` 1.4.0 -> 1.4.1, per explicit user instruction.
+
+### Follow-up 1: live user testing + multi-drag/per-image Crop (same day)
+
+The user launched the dev build directly (this session started it with
+`npm run dev` in the background and handed the window over - no
+coordinate-based automation involved) and tested live: uploaded a
+primary image, applied Crop, added two additional images - all
+confirmed via the running WS-AUDIT log (`Upload Start/Complete`,
+`origin=applyCrop`, two `origin=addAdditionalImage` events, all
+`diffs` clean). Verdict: "기능 구현이 잘된거 같아", followed immediately
+by two feature requests: drag multiple files in at once, and let each
+image (not just the primary) be cropped independently.
+
+- **Multi-file drag & drop**: `WorkspacePanel.tsx`'s separate
+  `addFile`/`addAdditionalFiles` were replaced with one shared
+  `addFiles(files)` used by all four entry points (primary dropzone
+  click, primary dropzone drop, "이미지 추가" click, and a new drop
+  target added to the additional-images section itself). If no
+  primary image exists yet, the first file in the list becomes it;
+  every remaining file (or every file, if a primary already exists)
+  becomes an additional image, up to the remaining
+  `MAX_ADDITIONAL_IMAGES` slots - all read via a shared
+  `readFileAsDataUrl` helper, sequentially `await`ed in a `for...of`
+  (not `Promise.all`) so selection order survives even if individual
+  `FileReader` reads would otherwise finish out of order. Selecting
+  exactly one file still produces the exact same single `onUploadImage`
+  call as before - the original flow is unchanged.
+- **Per-image Crop - required a type change**: `additionalImages`
+  changed from `string[]` (v1.4.1's first pass, same session, never
+  committed) to `AdditionalImage[]` -
+  `{ id, originalImagePath, croppedImagePath?, cropRect? }` - mirroring
+  the primary image's own original/cropped/cropRect shape. Safe to
+  reshape freely since Workspace state was never persisted and this
+  array had not yet been committed to git. Added
+  `WorkspaceService.setWorkspaceAdditionalImageCrop(workspaces, id,
+  additionalImageId, croppedImagePath, cropRect)`, addressed by the
+  image's own stable `id` (not array index, which shifts on removal) -
+  mirrors `setWorkspaceCrop` exactly, just scoped to one array entry.
+  `WorkspacePanel.tsx`'s single `showCropModal` boolean became
+  `cropTarget: "primary" | string | null`, so the existing `CropModal`
+  (v1.4.0, already fully generic - `imageDataUrl`/`initialCropRect`/
+  `onApply`/`onCancel`, no primary-specific assumptions inside it) is
+  now reused unmodified for both the primary and any additional image,
+  selected by which target `cropTarget` currently holds. Each
+  additional thumbnail gained its own 크롭 button plus a small green
+  ✂ badge once that specific image has a Crop applied.
+  `generate.ts`'s upload list changed from
+  `[primary, ...additionalImages]` to
+  `[primary, ...additionalImages.map(img => img.croppedImagePath ??
+  img.originalImagePath)]` - same precedence as the primary, just
+  computed per additional image.
+- Re-verified `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean
+  after both changes.
+- Relaunched the dev build (killed the now-stale running instance via
+  `Stop-Process -Force` on the `electron`-named processes, confirmed
+  none remained, then `npm run dev` again) so the user's next live test
+  ran against the actual new code, not the pre-change instance that
+  happened to still be open.
+
+### Follow-up 2: 3 UI polish requests (same day)
+
+After confirming the multi-drag/per-image Crop pass worked, the user
+asked for three small refinements:
+
+- **Compact primary preview in multi-image mode**: once
+  `additionalImages.length > 0`, the primary preview's `<img>` shrinks
+  to the same 84x84 thumbnail size as the additional list (new
+  `.compact` modifier class on `.workspace-upload-preview`), with its
+  own "1" order badge (reusing the existing
+  `.workspace-additional-image-order` badge style) so the full set
+  reads as one consistent row. A Workspace with no additional images
+  is completely unaffected - same full-size preview as always.
+- **App version next to the Toolbar title**: `Toolbar.tsx` now calls
+  the same `window.ipcRenderer.settings.getAppInfo()` IPC channel
+  `Settings.tsx` already used for its own "Application Version" row
+  (no new IPC channel added) and renders `v{appVersion}` in small muted
+  text next to "GPT Image Studio".
+- **"탭 전체 닫기" (close all tabs) button**: new
+  `WorkspaceService.clearAllWorkspaces()` (mirrors `addWorkspace`'s own
+  `{ workspaces, created }` return shape - a fresh single-Workspace
+  array plus the created Workspace) wired into a new
+  `onClearAllWorkspaces` handler in `Workspace.tsx` that also destroys
+  every existing Workspace's webview via `BrowserPool`, the same way
+  `onDeleteWorkspace` already does per-tab.
+  `WorkspaceTabs.tsx` shows a "탭 전체 닫기" button (only once 2+ tabs
+  are open, same visibility rule as the per-tab ✕) at the right edge
+  of the tab bar, **disabled while any Workspace is `running`/
+  `revising`** - a deliberate safety margin beyond the per-tab ✕
+  (which has no such guard), since discarding every tab at once has a
+  bigger blast radius than closing one.
+
+### Final verification
+
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean after every
+  round of changes in this session, including this final polish pass.
+- Relaunched the dev build once more with the final code so the user's
+  next live check reflects everything above, not an intermediate
+  state.
+- Still not independently live-tested by this session against a real
+  ChatGPT session for the full multi-image Generate flow end-to-end -
+  the upload/crop/order UI itself was confirmed live by the user (see
+  the WS-AUDIT log above), but a full Generate run with 2+ images has
+  not yet been separately confirmed to reach a saved file. Recorded
+  here rather than silently assumed.
+- Marked RELEASED in ROADMAP.md per explicit user instruction to
+  commit/push/release this version.

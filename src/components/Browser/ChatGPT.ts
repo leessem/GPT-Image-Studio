@@ -1551,7 +1551,7 @@ ${buildDomSnapshotSnippet()}
 `;
 }
 
-export function buildWaitUploadScript() {
+export function buildWaitUploadScript(expectedCount = 1) {
   return `
 (() => {
 ${buildDomSnapshotSnippet()}
@@ -1560,6 +1560,7 @@ ${buildDomSnapshotSnippet()}
     const timeoutMs = 20000;
     const pollMs = 200;
     const startedAt = Date.now();
+    const expectedCount = ${JSON.stringify(expectedCount)};
 
     const scope = () => {
       const editor = document.querySelector("#prompt-textarea");
@@ -1576,20 +1577,29 @@ ${buildDomSnapshotSnippet()}
     // backend-api file endpoint (the same host pattern already used above
     // by GENERATED_IMAGE_SELECTOR for generated images, scoped here to the
     // composer only so it can't match a result image in the message list).
+    //
+    // Multi Image Upload (v1.4.1): expectedCount lets generate.ts wait for
+    // the Nth thumbnail specifically (called once per image, right after
+    // that image's own buildUploadImageScript call) instead of just "any
+    // thumbnail" - a single-image Generate always passes expectedCount=1,
+    // which is exactly the old querySelector-truthy check below, so that
+    // path is unchanged.
     const uploadedThumbSelector = 'img[src*="/backend-api/estuary/content"]';
 
     console.log("[ChatGPT] [Step 5/10] Waiting for upload preview thumbnail", {
-      selector: uploadedThumbSelector + " (within composer form/parent)"
+      selector: uploadedThumbSelector + " (within composer form/parent)",
+      expectedCount
     });
 
     const check = () => {
 
-      const thumb = scope().querySelector(uploadedThumbSelector);
+      const thumbs = scope().querySelectorAll(uploadedThumbSelector);
 
-      if (thumb) {
+      if (thumbs.length >= expectedCount) {
 
         console.log("[ChatGPT] [Step 5/10] OK - upload preview detected", {
-          src: thumb.src.slice(0, 120)
+          count: thumbs.length,
+          src: thumbs[thumbs.length - 1].src.slice(0, 120)
         });
 
         console.log("[ChatGPT] [Step 6/10] OK - upload completed");

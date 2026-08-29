@@ -18,6 +18,7 @@ import { CropRect, Workspace } from "../../types/Workspace";
 import { PromptItem } from "../../types/Prompt";
 import { WorkType } from "../../types/WorkType";
 import { logWorkspaceEvent } from "../../utils/workspaceLogger";
+import { MAX_ADDITIONAL_IMAGES } from "../../services/WorkspaceService";
 
 const STATUS_LABEL: Record<Workspace["status"], string> = {
 
@@ -45,8 +46,22 @@ interface WorkspacePanelProps {
 
     onRemoveImage: () => void;
 
+    /** Multi Image Upload (v1.4.1) - called once per selected file, in
+     *  selection order. */
+    onAddAdditionalImage: (dataUrl: string) => void;
+
+    /** Multi Image Upload (v1.4.1) */
+    onRemoveAdditionalImage: (index: number) => void;
+
     /** Original Image Crop (v1.4.0) */
     onApplyCrop: (croppedDataUrl: string, cropRect: CropRect) => void;
+
+    /** Multi Image Upload + per-image Crop (v1.4.1) */
+    onApplyAdditionalImageCrop: (
+        additionalImageId: string,
+        croppedDataUrl: string,
+        cropRect: CropRect
+    ) => void;
 
     onSelectPrompt: (promptId: string) => void;
 
@@ -79,7 +94,13 @@ export default function WorkspacePanel({
 
     onRemoveImage,
 
+    onAddAdditionalImage,
+
+    onRemoveAdditionalImage,
+
     onApplyCrop,
+
+    onApplyAdditionalImageCrop,
 
     onSelectPrompt,
 
@@ -102,6 +123,10 @@ export default function WorkspacePanel({
     const [isDragging, setIsDragging] = useState(false);
 
     const inputRef = useRef<HTMLInputElement>(null);
+
+    // Multi Image Upload (v1.4.1) - separate file input for the "이미지
+    // 추가" control, distinct from the primary dropzone's inputRef above.
+    const additionalInputRef = useRef<HTMLInputElement>(null);
 
     // ========================================================================
     // Clear - "✔ Workspace cleared" is a purely transient bit of local UI
@@ -130,14 +155,17 @@ export default function WorkspacePanel({
     const [reviseInstruction, setReviseInstruction] = useState("");
 
     // ========================================================================
-    // Original Image Crop (v1.4.0) - whether the Crop UI is open is
-    // purely local, transient UI state (same reasoning as
-    // showClearedMessage/showReviseInput above), force-closed whenever
-    // the *displayed* workspace changes so switching tabs can never leave
-    // one Workspace's Crop UI open over a different Workspace's image.
+    // Original Image Crop (v1.4.0) + per-image Crop (v1.4.1) - which
+    // image the Crop UI is currently open for, if any: "primary" for
+    // the main uploaded image, or an additional image's own stable id
+    // (see types/Workspace.ts's AdditionalImage). Purely local,
+    // transient UI state (same reasoning as showClearedMessage/
+    // showReviseInput above), force-closed whenever the *displayed*
+    // workspace changes so switching tabs can never leave one
+    // Workspace's Crop UI open over a different Workspace's image.
     // ========================================================================
 
-    const [showCropModal, setShowCropModal] = useState(false);
+    const [cropTarget, setCropTarget] = useState<"primary" | string | null>(null);
 
     useEffect(() => {
 
@@ -147,7 +175,7 @@ export default function WorkspacePanel({
 
         setReviseInstruction("");
 
-        setShowCropModal(false);
+        setCropTarget(null);
 
         return () => clearTimeout(clearedMessageTimeout.current);
 
@@ -183,39 +211,106 @@ export default function WorkspacePanel({
 
     };
 
-    const addFile = (files: FileList | null) => {
+    const readFileAsDataUrl = (file: File): Promise<string | null> =>
 
-        const file = files?.[0];
+        new Promise(resolve => {
 
-        if (!file || !file.type.startsWith("image/"))
-            return;
+            const reader = new FileReader();
 
-        // TEMPORARY (V1.1 Workspace-isolation audit): logs the exact
-        // Workspace this attach-image action targets - see
-        // src/utils/workspaceLogger.ts. This is the literal "Upload an
-        // image" UI action from the reported repro steps, distinct from
-        // generate.ts's later "Upload Start/Complete" (attaching the
-        // image into ChatGPT's own composer during Generate).
-        logWorkspaceEvent(workspace.id, "Upload Start", {
-            source: "attach-image-ui",
-            fileName: file.name,
-            fileSize: file.size,
+            reader.onload = () => resolve(reader.result as string);
+
+            reader.onerror = () => {
+
+                console.error("[WorkspacePanel] failed to read image file", file.name);
+
+                resolve(null);
+
+            };
+
+            reader.readAsDataURL(file);
+
         });
 
-        const reader = new FileReader();
+    // ========================================================================
+    // Multi Image Upload (v1.4.1) - one shared handler for every image-
+    // file entry point (the primary dropzone's click-to-upload AND
+    // drag/drop, and the "이미지 추가" button's click-to-select AND
+    // drag/drop): reads every selected/dropped file as a data: URL, in
+    // the exact order the browser reports them, and never reorders.
+    //
+    // If this Workspace has no primary image yet, the FIRST file in the
+    // list becomes it (via onUploadImage) - this keeps the original
+    // "select 1 image -> Upload" flow byte-for-byte identical when
+    // exactly one file is chosen, while also letting a single multi-
+    // file drag/drop or multi-select fill the primary + several
+    // additional slots in one action, per user request ("여러장이
+    // 한번에 드래그로 올라가면 좋겠다"). Every remaining file (or every
+    // file, if a primary already exists) becomes an additional image,
+    // up to whatever's left of MAX_ADDITIONAL_IMAGES - anything beyond
+    // that is silently dropped (the "이미지 추가" button is already
+    // disabled at the cap, so this only matters for a drop/multi-select
+    // that itself exceeds the remaining slots). Non-image files are
+    // skipped entirely.
+    // ========================================================================
 
-        reader.onload = () => {
+    const addFiles = async (files: FileList | null) => {
 
-            logWorkspaceEvent(workspace.id, "Upload Complete", {
+        if (!files || files.length === 0)
+            return;
+
+        const imageFiles = Array.from(files).filter(file => file.type.startsWith("image/"));
+
+        if (imageFiles.length === 0)
+            return;
+
+        let nextIndex = 0;
+
+        if (!workspace.uploadedImagePath) {
+
+            const primaryFile = imageFiles[0];
+
+            // TEMPORARY (V1.1 Workspace-isolation audit): logs the exact
+            // Workspace this attach-image action targets - see
+            // src/utils/workspaceLogger.ts. This is the literal "Upload
+            // an image" UI action from the reported repro steps,
+            // distinct from generate.ts's later "Upload Start/Complete"
+            // (attaching the image into ChatGPT's own composer during
+            // Generate).
+            logWorkspaceEvent(workspace.id, "Upload Start", {
                 source: "attach-image-ui",
-                fileName: file.name,
+                fileName: primaryFile.name,
+                fileSize: primaryFile.size,
             });
 
-            onUploadImage(reader.result as string);
+            const primaryDataUrl = await readFileAsDataUrl(primaryFile);
 
-        };
+            if (primaryDataUrl) {
 
-        reader.readAsDataURL(file);
+                logWorkspaceEvent(workspace.id, "Upload Complete", {
+                    source: "attach-image-ui",
+                    fileName: primaryFile.name,
+                });
+
+                onUploadImage(primaryDataUrl);
+
+            }
+
+            nextIndex = 1;
+
+        }
+
+        const remainingSlots = MAX_ADDITIONAL_IMAGES - (workspace.additionalImages?.length ?? 0);
+
+        const additionalFiles = imageFiles.slice(nextIndex, nextIndex + Math.max(0, remainingSlots));
+
+        for (const file of additionalFiles) {
+
+            const dataUrl = await readFileAsDataUrl(file);
+
+            if (dataUrl)
+                onAddAdditionalImage(dataUrl);
+
+        }
 
     };
 
@@ -225,7 +320,7 @@ export default function WorkspacePanel({
 
         setIsDragging(false);
 
-        addFile(e.dataTransfer.files);
+        void addFiles(e.dataTransfer.files);
 
     };
 
@@ -240,6 +335,44 @@ export default function WorkspacePanel({
     const onDragLeave = () => {
 
         setIsDragging(false);
+
+    };
+
+    // Multi Image Upload (v1.4.1) - same drag/drop support as the
+    // primary dropzone above, scoped to the additional-images section
+    // (only rendered once a primary image already exists).
+    const [isDraggingAdditional, setIsDraggingAdditional] = useState(false);
+
+    const additionalDropDisabled =
+        workspace.status === "running" ||
+        workspace.status === "revising" ||
+        (workspace.additionalImages?.length ?? 0) >= MAX_ADDITIONAL_IMAGES;
+
+    const onDropAdditional = (e: React.DragEvent<HTMLDivElement>) => {
+
+        e.preventDefault();
+
+        setIsDraggingAdditional(false);
+
+        if (additionalDropDisabled)
+            return;
+
+        void addFiles(e.dataTransfer.files);
+
+    };
+
+    const onDragOverAdditional = (e: React.DragEvent<HTMLDivElement>) => {
+
+        e.preventDefault();
+
+        if (!additionalDropDisabled)
+            setIsDraggingAdditional(true);
+
+    };
+
+    const onDragLeaveAdditional = () => {
+
+        setIsDraggingAdditional(false);
 
     };
 
@@ -278,6 +411,15 @@ export default function WorkspacePanel({
 
     const colorMissing = colorRequired && !workspace.customerColor?.trim();
 
+    // Multi Image Upload polish (v1.4.1, per live user feedback) - once
+    // additional images exist, the primary preview shrinks to the same
+    // small-thumbnail size as the additional list below (with its own
+    // "1" order badge to match their 2/3/4/5), so the whole set reads
+    // as one consistent row instead of one oversized image next to
+    // several small ones. A Workspace with no additional images keeps
+    // the original full-size preview exactly as before.
+    const isMultiImage = (workspace.additionalImages?.length ?? 0) > 0;
+
     return (
 
         <div className="workspace-panel">
@@ -308,7 +450,7 @@ export default function WorkspacePanel({
 
                 {workspace.uploadedImagePath ? (
 
-                    <div className="workspace-upload-preview">
+                    <div className={"workspace-upload-preview" + (isMultiImage ? " compact" : "")}>
 
                         {/* -----------------------------------------------
                             Original Image Crop (v1.4.0) - the preview
@@ -324,10 +466,20 @@ export default function WorkspacePanel({
                             past the current selection.
                         ------------------------------------------------ */}
 
-                        <img
-                            src={workspace.croppedImagePath ?? workspace.uploadedImagePath}
-                            alt="Uploaded"
-                        />
+                        <div className="workspace-upload-preview-image-wrap">
+
+                            <img
+                                src={workspace.croppedImagePath ?? workspace.uploadedImagePath}
+                                alt="Uploaded"
+                            />
+
+                            {isMultiImage && (
+
+                                <span className="workspace-additional-image-order">1</span>
+
+                            )}
+
+                        </div>
 
                         <div className="workspace-image-actions">
 
@@ -347,7 +499,7 @@ export default function WorkspacePanel({
 
                                 disabled={workspace.status === "running" || workspace.status === "revising"}
 
-                                onClick={() => setShowCropModal(true)}
+                                onClick={() => setCropTarget("primary")}
 
                             >
 
@@ -381,6 +533,151 @@ export default function WorkspacePanel({
 
                         )}
 
+                        {/* -----------------------------------------------
+                            Multi Image Upload (v1.4.1) - additional
+                            images uploaded together with the primary
+                            image above, in selection order. Only shown
+                            once a primary image exists - this list
+                            always builds on top of it, never standalone.
+                        ------------------------------------------------ */}
+
+                        <div
+
+                            className={
+                                "workspace-additional-images" +
+                                (isDraggingAdditional ? " dragging" : "")
+                            }
+
+                            onDrop={onDropAdditional}
+
+                            onDragOver={onDragOverAdditional}
+
+                            onDragLeave={onDragLeaveAdditional}
+
+                        >
+
+                            <div className="workspace-additional-images-header">
+
+                                <span className="workspace-additional-images-count">
+
+                                    이미지 {(workspace.additionalImages?.length ?? 0) + 1}/{MAX_ADDITIONAL_IMAGES + 1}
+
+                                </span>
+
+                                <button
+
+                                    type="button"
+
+                                    className="workspace-additional-image-add-button"
+
+                                    disabled={additionalDropDisabled}
+
+                                    onClick={() => additionalInputRef.current?.click()}
+
+                                >
+
+                                    + 이미지 추가 (드래그 가능)
+
+                                </button>
+
+                            </div>
+
+                            {workspace.additionalImages && workspace.additionalImages.length > 0 && (
+
+                                <div className="workspace-additional-image-list">
+
+                                    {workspace.additionalImages.map((image, index) => (
+
+                                        <div key={image.id} className="workspace-additional-image-item">
+
+                                            <span className="workspace-additional-image-order">
+
+                                                {index + 2}
+
+                                            </span>
+
+                                            <img
+                                                src={image.croppedImagePath ?? image.originalImagePath}
+                                                alt={`추가 이미지 ${index + 2}`}
+                                            />
+
+                                            {image.croppedImagePath && (
+
+                                                <span
+                                                    className="workspace-additional-image-crop-badge"
+                                                    title="Crop 적용됨"
+                                                >
+                                                    ✂
+                                                </span>
+
+                                            )}
+
+                                            <div className="workspace-additional-image-actions">
+
+                                                <button
+
+                                                    type="button"
+
+                                                    disabled={workspace.status === "running" || workspace.status === "revising"}
+
+                                                    onClick={() => setCropTarget(image.id)}
+
+                                                >
+
+                                                    크롭
+
+                                                </button>
+
+                                                <button
+
+                                                    type="button"
+
+                                                    className="workspace-additional-image-delete"
+
+                                                    disabled={workspace.status === "running" || workspace.status === "revising"}
+
+                                                    onClick={() => onRemoveAdditionalImage(index)}
+
+                                                >
+
+                                                    삭제
+
+                                                </button>
+
+                                            </div>
+
+                                        </div>
+
+                                    ))}
+
+                                </div>
+
+                            )}
+
+                            <input
+
+                                ref={additionalInputRef}
+
+                                type="file"
+
+                                accept="image/*"
+
+                                multiple
+
+                                className="workspace-upload-input"
+
+                                onChange={e => {
+
+                                    void addFiles(e.target.files);
+
+                                    e.target.value = "";
+
+                                }}
+
+                            />
+
+                        </div>
+
                     </div>
 
                 ) : (
@@ -402,7 +699,7 @@ export default function WorkspacePanel({
 
                     >
 
-                        Drag & Drop or Click to Upload
+                        Drag & Drop or Click to Upload (여러 장 동시 선택 가능)
 
                     </div>
 
@@ -416,9 +713,17 @@ export default function WorkspacePanel({
 
                     accept="image/*"
 
+                    multiple
+
                     className="workspace-upload-input"
 
-                    onChange={e => addFile(e.target.files)}
+                    onChange={e => {
+
+                        void addFiles(e.target.files);
+
+                        e.target.value = "";
+
+                    }}
 
                 />
 
@@ -801,7 +1106,7 @@ export default function WorkspacePanel({
                 original), never against a Crop result.
             ---------------------------------------------------------- */}
 
-            {showCropModal && workspace.uploadedImagePath && (
+            {cropTarget === "primary" && workspace.uploadedImagePath && (
 
                 <CropModal
 
@@ -813,15 +1118,54 @@ export default function WorkspacePanel({
 
                         onApplyCrop(croppedDataUrl, cropRect);
 
-                        setShowCropModal(false);
+                        setCropTarget(null);
 
                     }}
 
-                    onCancel={() => setShowCropModal(false)}
+                    onCancel={() => setCropTarget(null)}
 
                 />
 
             )}
+
+            {/* ---------------------------------------------------------
+                per-image Crop (v1.4.1) - same CropModal, scoped to one
+                additional image's own originalImagePath, addressed by
+                its stable id (cropTarget holds that id whenever it's
+                not "primary"/null). Independent of the primary Crop
+                above and of every other additional image's.
+            ---------------------------------------------------------- */}
+
+            {cropTarget !== null && cropTarget !== "primary" && (() => {
+
+                const target = workspace.additionalImages?.find(image => image.id === cropTarget);
+
+                if (!target)
+                    return null;
+
+                return (
+
+                    <CropModal
+
+                        imageDataUrl={target.originalImagePath}
+
+                        initialCropRect={target.cropRect}
+
+                        onApply={(croppedDataUrl, cropRect) => {
+
+                            onApplyAdditionalImageCrop(target.id, croppedDataUrl, cropRect);
+
+                            setCropTarget(null);
+
+                        }}
+
+                        onCancel={() => setCropTarget(null)}
+
+                    />
+
+                );
+
+            })()}
 
         </div>
 

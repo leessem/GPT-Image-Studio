@@ -146,6 +146,56 @@ export interface Workspace {
      */
     croppedImagePath?: string;
 
+    /**
+     * Multi Image Upload (v1.4.1): additional original images uploaded
+     * together with the primary image (`croppedImagePath ?? uploadedImagePath`),
+     * in selection order - order is never reshuffled (see
+     * WorkspaceService.addWorkspaceAdditionalImage). Optional and
+     * defaults to empty/undefined; a Workspace with no entries here is
+     * byte-for-byte the same single-image pipeline as before this
+     * feature (generate.ts only loops when this array is non-empty).
+     * Requires a primary image to exist first (WorkspaceService
+     * enforces this), and is cleared whenever the primary is replaced
+     * or removed (same reasoning as cropRect/croppedImagePath above - a
+     * stale image set must never survive a changed primary). Capped at
+     * MAX_ADDITIONAL_IMAGES (WorkspaceService) by the "이미지 추가"
+     * button.
+     */
+    additionalImages?: AdditionalImage[];
+
+}
+
+/**
+ * Multi Image Upload (v1.4.1): one additional image alongside the
+ * primary. Mirrors the primary image's own original/cropped/cropRect
+ * shape (uploadedImagePath/croppedImagePath/cropRect on Workspace
+ * above) so each additional image can be cropped independently of the
+ * primary and of every other additional image - see
+ * WorkspaceService.setWorkspaceAdditionalImageCrop.
+ */
+export interface AdditionalImage {
+
+    /** Stable per-image identity (React list key, crop-target
+     *  addressing) - independent of array position, which shifts
+     *  whenever an earlier image is removed. */
+    id: string;
+
+    /** Data: URL - the untouched original this image was added as.
+     *  Never mutated; a Crop always reads from this, never from
+     *  `croppedImagePath`, so re-cropping can widen back out past the
+     *  current selection - same rule as the primary image. */
+    originalImagePath: string;
+
+    /** Data: URL - this image's own Crop result, if any. generate.ts
+     *  uploads `croppedImagePath ?? originalImagePath` for each entry,
+     *  same precedence as the primary. */
+    croppedImagePath?: string;
+
+    /** This image's own last confirmed Crop selection, in ITS OWN
+     *  natural pixel coordinates - independent of the primary's
+     *  cropRect and of every other additional image's. */
+    cropRect?: CropRect;
+
 }
 
 export function createWorkspace(): Workspace {

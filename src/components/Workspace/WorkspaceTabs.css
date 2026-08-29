@@ -145,3 +145,45 @@
     color:#222222;
 
 }
+
+.workspace-tabs-clear-all{
+
+    margin-left:auto;
+
+    height:28px;
+
+    padding:0 12px;
+
+    background:#ffffff;
+
+    border:1px solid #c9cdd3;
+
+    border-radius:6px;
+
+    color:#666666;
+
+    font-size:12px;
+
+    cursor:pointer;
+
+    transition:background .15s ease, color .15s ease, border-color .15s ease;
+
+}
+
+.workspace-tabs-clear-all:hover:not(:disabled){
+
+    background:#fee2e2;
+
+    border-color:#dc2626;
+
+    color:#dc2626;
+
+}
+
+.workspace-tabs-clear-all:disabled{
+
+    color:#c9cdd3;
+
+    cursor:not-allowed;
+
+}

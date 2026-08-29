@@ -44,6 +44,7 @@ import WorkTypeStore from "../../store/WorkTypeStore";
 import {
     getCurrentWorkspace,
     addWorkspace,
+    clearAllWorkspaces,
     deleteWorkspace,
     updateWorkspace,
     setWorkspacePrompt,
@@ -53,6 +54,9 @@ import {
     setWorkspaceCustomerName,
     setWorkspaceCustomerNumber,
     setWorkspaceCustomerColor,
+    addWorkspaceAdditionalImage,
+    removeWorkspaceAdditionalImage,
+    setWorkspaceAdditionalImageCrop,
     clearWorkspace,
 } from "../../services/WorkspaceService";
 
@@ -512,6 +516,27 @@ export default function Workspace() {
 
     };
 
+    // Closes every open Workspace tab at once, replacing them with a
+    // single fresh one - same underlying operation as onDeleteWorkspace
+    // above, just applied to the whole list in one click instead of one
+    // tab at a time. Blocked (see WorkspaceTabs' own disabled check)
+    // while any Workspace is "running"/"revising" so an in-flight
+    // generation is never silently discarded by one click.
+    const onClearAllWorkspaces = () => {
+
+        const { workspaces: next, created } = clearAllWorkspaces();
+
+        for (const w of workspacesRef.current)
+            browserPoolRef.current?.destroy(w.id);
+
+        setWorkspacesLogged("clearAllWorkspaces", next);
+
+        setCurrentWorkspaceId(created.id);
+
+        logWorkspaceEvent(created.id, "Workspace Created");
+
+    };
+
     const onUploadImage = (dataUrl: string) => {
 
         setWorkspacesLogged("uploadImage", prev =>
@@ -524,6 +549,51 @@ export default function Workspace() {
 
         setWorkspacesLogged("removeImage", prev =>
             setWorkspaceUploadedImage(prev, currentWorkspace.id, undefined)
+        );
+
+    };
+
+    // Multi Image Upload (v1.4.1) - appends one additional image (already
+    // read as a data: URL by WorkspacePanel) after the current primary +
+    // any existing additional images, one at a time - WorkspacePanel
+    // calls this once per selected file, in selection order, so ordering
+    // is preserved through the same sequential functional-update pattern
+    // every other Workspace mutation here already uses.
+    const onAddAdditionalImage = (dataUrl: string) => {
+
+        setWorkspacesLogged("addAdditionalImage", prev =>
+            addWorkspaceAdditionalImage(prev, currentWorkspace.id, dataUrl)
+        );
+
+    };
+
+    const onRemoveAdditionalImage = (index: number) => {
+
+        setWorkspacesLogged("removeAdditionalImage", prev =>
+            removeWorkspaceAdditionalImage(prev, currentWorkspace.id, index)
+        );
+
+    };
+
+    // Multi Image Upload + per-image Crop (v1.4.1) - confirms a Crop
+    // selection made against one additional image's own
+    // originalImagePath, addressed by its stable id. Independent of the
+    // primary image's onApplyCrop below and of every other additional
+    // image.
+    const onApplyAdditionalImageCrop = (
+        additionalImageId: string,
+        croppedDataUrl: string,
+        cropRect: CropRect
+    ) => {
+
+        setWorkspacesLogged("applyAdditionalImageCrop", prev =>
+            setWorkspaceAdditionalImageCrop(
+                prev,
+                currentWorkspace.id,
+                additionalImageId,
+                croppedDataUrl,
+                cropRect
+            )
         );
 
     };
@@ -682,6 +752,8 @@ export default function Workspace() {
 
                 onDelete={onDeleteWorkspace}
 
+                onClearAll={onClearAllWorkspaces}
+
             />
 
             {/* ===============================================================
@@ -725,6 +797,12 @@ export default function Workspace() {
                     onUploadImage={onUploadImage}
 
                     onRemoveImage={onRemoveImage}
+
+                    onAddAdditionalImage={onAddAdditionalImage}
+
+                    onRemoveAdditionalImage={onRemoveAdditionalImage}
+
+                    onApplyAdditionalImageCrop={onApplyAdditionalImageCrop}
 
                     onApplyCrop={onApplyCrop}
 

@@ -299,8 +299,8 @@ export async function runGenerate({
         }
 
         // =====================================================================
-        // 2. Upload the Workspace's image into ChatGPT, then wait for it to
-        //    complete (skipped entirely when no image is attached).
+        // 2. Upload the Workspace's image(s) into ChatGPT, then wait for
+        //    each to complete (skipped entirely when no image is attached).
         //
         //    Original Image Crop (v1.4.0): if this Workspace has a
         //    confirmed Crop, its own separate bitmap (croppedImagePath) is
@@ -308,93 +308,139 @@ export async function runGenerate({
         //    ONLY place that decision is made. uploadedImagePath itself is
         //    never mutated or read anywhere else in this function, so a
         //    Crop-less Generate is byte-for-byte the same pipeline as
-        //    before this feature existed.
+        //    before this feature existed. Per-image Crop (v1.4.1) applies
+        //    the exact same croppedImagePath ?? originalImagePath
+        //    precedence to each additional image independently.
+        //
+        //    Multi Image Upload (v1.4.1): activeImages is the primary
+        //    image followed by any additionalImages' own active bitmap,
+        //    in selection order. A Workspace with no additionalImages
+        //    produces a 1-element array here, so the loop below runs
+        //    exactly once with the exact same script calls
+        //    (buildUploadImageScript with the default "upload.png"
+        //    filename, buildWaitUploadScript(1)) as the pre-v1.4.1
+        //    single-image pipeline - byte-for-byte unchanged for that
+        //    case. Images are uploaded strictly one at a time, waiting for
+        //    each one's own thumbnail to appear before starting the next,
+        //    per spec ("동시에 여러 개를 무리하게 업로드하지 않는다").
         // =====================================================================
 
-        const activeImagePath = workspace.croppedImagePath ?? workspace.uploadedImagePath;
+        const primaryImagePath = workspace.croppedImagePath ?? workspace.uploadedImagePath;
 
-        if (activeImagePath) {
+        const additionalActiveImages = (workspace.additionalImages ?? []).map(
+            img => img.croppedImagePath ?? img.originalImagePath
+        );
+
+        const activeImages = primaryImagePath
+            ? [primaryImagePath, ...additionalActiveImages]
+            : [];
+
+        if (activeImages.length > 0) {
 
             logWorkspaceEvent(workspace.id, "Upload Start", {
                 webContentsId: browser.getWebContentsId(),
                 cropped: !!workspace.croppedImagePath,
+                imageCount: activeImages.length,
             });
 
-            logPipelineStage(debugSessionId, workspace.id, "Image Upload Start");
+            logPipelineStage(debugSessionId, workspace.id, "Image Upload Start", {
+                imageCount: activeImages.length,
+            });
 
-            const uploadResult = await browser.execute(
+            for (let imageIndex = 0; imageIndex < activeImages.length; imageIndex++) {
 
-                buildUploadImageScript(activeImagePath)
+                const imagePath = activeImages[imageIndex];
 
-            ) as {
-                success: boolean;
-                stepName?: string;
-                selector?: string;
-                domSnapshot?: unknown;
-                reason?: string;
-            } | undefined;
+                const fileName = activeImages.length > 1
+                    ? `upload-${imageIndex + 1}.png`
+                    : "upload.png";
 
-            if (!uploadResult?.success) {
+                const uploadResult = await browser.execute(
 
-                console.error(
-                    `[Generate] FAILED - ${uploadResult?.stepName ?? "upload"}`,
-                    {
+                    buildUploadImageScript(imagePath, fileName)
+
+                ) as {
+                    success: boolean;
+                    stepName?: string;
+                    selector?: string;
+                    domSnapshot?: unknown;
+                    reason?: string;
+                } | undefined;
+
+                if (!uploadResult?.success) {
+
+                    console.error(
+                        `[Generate] FAILED - ${uploadResult?.stepName ?? "upload"} (image ${imageIndex + 1}/${activeImages.length})`,
+                        {
+                            selector: uploadResult?.selector,
+                            domSnapshot: uploadResult?.domSnapshot,
+                            reason: uploadResult?.reason ?? "no result",
+                        }
+                    );
+
+                    raiseError(uploadResult?.stepName ?? "upload-failed", {
                         selector: uploadResult?.selector,
-                        domSnapshot: uploadResult?.domSnapshot,
-                        reason: uploadResult?.reason ?? "no result",
-                    }
+                        detail: uploadResult?.reason ?? "no result",
+                        imageIndex,
+                        imageCount: activeImages.length,
+                    });
+
+                    return;
+
+                }
+
+                console.log(
+                    `[Generate] OK - image ${imageIndex + 1}/${activeImages.length} injected, waiting for upload to complete`
                 );
 
-                raiseError(uploadResult?.stepName ?? "upload-failed", {
-                    selector: uploadResult?.selector,
-                    detail: uploadResult?.reason ?? "no result",
-                });
+                const uploadWaitResult = await browser.execute(
 
-                return;
+                    buildWaitUploadScript(imageIndex + 1)
 
-            }
+                ) as {
+                    success: boolean;
+                    stepName?: string;
+                    selector?: string;
+                    domSnapshot?: unknown;
+                    reason?: string;
+                } | undefined;
 
-            console.log("[Generate] OK - image injected, waiting for upload to complete");
+                if (!uploadWaitResult?.success) {
 
-            const uploadWaitResult = await browser.execute(
+                    console.error(
+                        `[Generate] FAILED - ${uploadWaitResult?.stepName ?? "upload-preview-detected"} (image ${imageIndex + 1}/${activeImages.length})`,
+                        {
+                            selector: uploadWaitResult?.selector,
+                            domSnapshot: uploadWaitResult?.domSnapshot,
+                            reason: uploadWaitResult?.reason ?? "no result",
+                        }
+                    );
 
-                buildWaitUploadScript()
-
-            ) as {
-                success: boolean;
-                stepName?: string;
-                selector?: string;
-                domSnapshot?: unknown;
-                reason?: string;
-            } | undefined;
-
-            if (!uploadWaitResult?.success) {
-
-                console.error(
-                    `[Generate] FAILED - ${uploadWaitResult?.stepName ?? "upload-preview-detected"}`,
-                    {
+                    raiseError(uploadWaitResult?.stepName ?? "upload-not-detected", {
                         selector: uploadWaitResult?.selector,
-                        domSnapshot: uploadWaitResult?.domSnapshot,
-                        reason: uploadWaitResult?.reason ?? "no result",
-                    }
+                        detail: uploadWaitResult?.reason ?? "no result",
+                        imageIndex,
+                        imageCount: activeImages.length,
+                    });
+
+                    return;
+
+                }
+
+                console.log(
+                    `[Generate] OK - image ${imageIndex + 1}/${activeImages.length} upload completed`
                 );
-
-                raiseError(uploadWaitResult?.stepName ?? "upload-not-detected", {
-                    selector: uploadWaitResult?.selector,
-                    detail: uploadWaitResult?.reason ?? "no result",
-                });
-
-                return;
 
             }
 
             logWorkspaceEvent(workspace.id, "Upload Complete", {
                 webContentsId: browser.getWebContentsId(),
+                imageCount: activeImages.length,
             });
 
-            logPipelineStage(debugSessionId, workspace.id, "Image Upload Complete");
-
-            console.log("[Generate] OK - upload completed");
+            logPipelineStage(debugSessionId, workspace.id, "Image Upload Complete", {
+                imageCount: activeImages.length,
+            });
 
             // =================================================================
             // Intermittent race: ChatGPT can - not always - leave an image
@@ -833,6 +879,11 @@ export async function runGenerate({
                       uploadedImagePath: undefined,
                       croppedImagePath: undefined,
                       cropRect: undefined,
+                      // Multi Image Upload (v1.4.1): the consumed
+                      // additional images go with the consumed primary -
+                      // same "this run's upload is spent" reasoning as
+                      // the three fields above.
+                      additionalImages: undefined,
                   }
                 : w
         ));
