@@ -2,6 +2,31 @@
 
 All notable changes to GPT Image Studio are documented in this file.
 
+## Version 1.4.0 (2026-08-29)
+
+**Added Original Image Crop.**
+
+- The Image preview now shows **원본 교체** / **크롭** / **삭제**
+  instead of a single "Remove" button. **크롭** opens a small in-app
+  Crop UI over the current original image: drag to select a region,
+  resize via corner handles, move by dragging inside the selection -
+  the selection can never leave the image, and everything outside it
+  is dimmed. **적용** confirms the selection, **초기화** resets it
+  back to the full image, **취소** discards changes.
+- The Crop result is a real pixel-accurate bitmap of the selected
+  region (built from the original's own natural resolution, not a
+  scaled-down screen capture) - a 1000×800 selection out of a
+  4000×3000 original stays a true 1000×800 image.
+- The original image is never modified. Once a Crop is confirmed, the
+  preview shows the cropped result and a "✂ Crop 적용됨" status is
+  shown; Generate uploads the cropped image instead of the original.
+  Generate without a Crop behaves exactly as before this feature.
+- Replacing the original image ("원본 교체") or removing it ("삭제")
+  automatically clears any existing Crop, so a stale selection can
+  never apply to a different or missing image.
+- Crop state belongs to its own Workspace only, same as every other
+  per-Workspace field - Workspaces never affect each other's Crop.
+
 ## Version 1.3.2 (2026-08-16)
 
 **Fixed TXT Attachment Mode reliability (Debug Window position, retry

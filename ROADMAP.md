@@ -1,6 +1,42 @@
 # ROADMAP
 
-## Version 1.3.2 - IN PROGRESS (2026-08-16)
+## Version 1.4.0 - RELEASED (2026-08-29)
+
+Original Image Crop: a Workspace with an uploaded original image can
+now be cropped down to a sub-region before Generate, without ever
+losing or overwriting the original itself.
+
+- Image preview gained three actions - **원본 교체** / **크롭** /
+  **삭제** - replacing the "Remove"-only button. [크롭] is only shown
+  once an original image is uploaded.
+- New Crop UI (`CropModal.tsx`): drag to select a region over the full
+  original image, resize via 4 corner handles, move by dragging inside
+  the selection, dimmed overlay outside it. The selection can never
+  leave the image bounds. **적용** / **초기화** / **취소** match the
+  original spec.
+- All crop math runs in the original image's own natural pixel
+  coordinates - Apply produces a real bitmap crop (via an offscreen
+  `<canvas>`) at the selection's true resolution, never a scaled-down
+  screen capture.
+- The original (`Workspace.uploadedImagePath`) is never mutated. The
+  Crop result lives in its own new field (`croppedImagePath`, plus
+  `cropRect` for re-editing); Generate uses
+  `croppedImagePath ?? uploadedImagePath` as the actual upload target -
+  the only change made to the existing, verified Upload -> Prompt ->
+  Send pipeline. A Crop-less Generate is byte-for-byte the same
+  pipeline as before this feature.
+- Replacing or removing the original image resets any existing Crop
+  automatically; a successful Generate also clears the consumed Crop
+  together with the consumed upload, same as the existing "consumed
+  upload" reset.
+- Crop state lives on the `Workspace` object itself, so it is isolated
+  per-Workspace the same way every other Workspace field already is,
+  and - like all Workspace state - is runtime-only (not persisted,
+  not part of Backup/Restore).
+
+**Verification:** see WORKLOG Session 34.
+
+## Version 1.3.2 - RELEASED (2026-08-16)
 
 TXT Attachment Mode reliability fixes, found via live user testing of
 v1.3.1's TXT mode after release.

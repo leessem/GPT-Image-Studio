@@ -5,7 +5,7 @@
 // Tab/Job nesting anymore, a Workspace is the only unit.
 // ============================================================================
 
-import { Workspace, createWorkspace } from "../types/Workspace";
+import { Workspace, CropRect, createWorkspace } from "../types/Workspace";
 
 export function getCurrentWorkspace(
 
@@ -244,6 +244,13 @@ export function setWorkspaceCustomerColor(
 
 }
 
+/**
+ * Sets (or clears) a Workspace's uploaded original image. Always resets
+ * `cropRect`/`croppedImagePath` together with it - a Crop selection made
+ * against one original image must never be silently applied to a
+ * different (replaced) original, or survive the original being removed
+ * (Original Image Crop, v1.4.0, requirement 9).
+ */
 export function setWorkspaceUploadedImage(
 
     workspaces: Workspace[],
@@ -257,7 +264,39 @@ export function setWorkspaceUploadedImage(
     return updateWorkspace(
         workspaces,
         id,
-        w => ({ ...w, uploadedImagePath })
+        w => ({
+            ...w,
+            uploadedImagePath,
+            cropRect: undefined,
+            croppedImagePath: undefined,
+        })
+    );
+
+}
+
+/**
+ * Original Image Crop (v1.4.0): confirms a Crop selection on the
+ * Workspace's current `uploadedImagePath`. `croppedImagePath` is a
+ * wholly separate data URL bitmap - the original itself is never
+ * touched. Passing `undefined` for both clears the Crop back to "use
+ * the full original", independent of `setWorkspaceUploadedImage` above.
+ */
+export function setWorkspaceCrop(
+
+    workspaces: Workspace[],
+
+    id: string,
+
+    croppedImagePath: string | undefined,
+
+    cropRect: CropRect | undefined
+
+): Workspace[] {
+
+    return updateWorkspace(
+        workspaces,
+        id,
+        w => ({ ...w, croppedImagePath, cropRect })
     );
 
 }

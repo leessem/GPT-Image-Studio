@@ -12,7 +12,9 @@ import { useEffect, useRef, useState } from "react";
 
 import "./WorkspacePanel.css";
 
-import { Workspace } from "../../types/Workspace";
+import CropModal from "./CropModal";
+
+import { CropRect, Workspace } from "../../types/Workspace";
 import { PromptItem } from "../../types/Prompt";
 import { WorkType } from "../../types/WorkType";
 import { logWorkspaceEvent } from "../../utils/workspaceLogger";
@@ -42,6 +44,9 @@ interface WorkspacePanelProps {
     onUploadImage: (dataUrl: string) => void;
 
     onRemoveImage: () => void;
+
+    /** Original Image Crop (v1.4.0) */
+    onApplyCrop: (croppedDataUrl: string, cropRect: CropRect) => void;
 
     onSelectPrompt: (promptId: string) => void;
 
@@ -73,6 +78,8 @@ export default function WorkspacePanel({
     onUploadImage,
 
     onRemoveImage,
+
+    onApplyCrop,
 
     onSelectPrompt,
 
@@ -122,6 +129,16 @@ export default function WorkspacePanel({
 
     const [reviseInstruction, setReviseInstruction] = useState("");
 
+    // ========================================================================
+    // Original Image Crop (v1.4.0) - whether the Crop UI is open is
+    // purely local, transient UI state (same reasoning as
+    // showClearedMessage/showReviseInput above), force-closed whenever
+    // the *displayed* workspace changes so switching tabs can never leave
+    // one Workspace's Crop UI open over a different Workspace's image.
+    // ========================================================================
+
+    const [showCropModal, setShowCropModal] = useState(false);
+
     useEffect(() => {
 
         setShowClearedMessage(false);
@@ -129,6 +146,8 @@ export default function WorkspacePanel({
         setShowReviseInput(false);
 
         setReviseInstruction("");
+
+        setShowCropModal(false);
 
         return () => clearTimeout(clearedMessageTimeout.current);
 
@@ -291,13 +310,76 @@ export default function WorkspacePanel({
 
                     <div className="workspace-upload-preview">
 
-                        <img src={workspace.uploadedImagePath} alt="Uploaded" />
+                        {/* -----------------------------------------------
+                            Original Image Crop (v1.4.0) - the preview
+                            shows the Crop result once one is applied, so
+                            the user can see at a glance what will actually
+                            be uploaded to ChatGPT (generate.ts uses this
+                            same `croppedImagePath ?? uploadedImagePath`
+                            precedence). The underlying original is never
+                            touched or lost - [크롭] always re-opens the
+                            CropModal against workspace.uploadedImagePath
+                            itself (see below), never against this cropped
+                            preview, so re-editing can still widen back out
+                            past the current selection.
+                        ------------------------------------------------ */}
 
-                        <button onClick={onRemoveImage}>
+                        <img
+                            src={workspace.croppedImagePath ?? workspace.uploadedImagePath}
+                            alt="Uploaded"
+                        />
 
-                            Remove
+                        <div className="workspace-image-actions">
 
-                        </button>
+                            <button
+
+                                disabled={workspace.status === "running" || workspace.status === "revising"}
+
+                                onClick={() => inputRef.current?.click()}
+
+                            >
+
+                                원본 교체
+
+                            </button>
+
+                            <button
+
+                                disabled={workspace.status === "running" || workspace.status === "revising"}
+
+                                onClick={() => setShowCropModal(true)}
+
+                            >
+
+                                크롭
+
+                            </button>
+
+                            <button
+
+                                className="workspace-image-delete"
+
+                                disabled={workspace.status === "running" || workspace.status === "revising"}
+
+                                onClick={onRemoveImage}
+
+                            >
+
+                                삭제
+
+                            </button>
+
+                        </div>
+
+                        {workspace.croppedImagePath && (
+
+                            <span className="workspace-crop-status">
+
+                                ✂ Crop 적용됨 - 다시 편집하려면 [크롭]을 누르세요
+
+                            </span>
+
+                        )}
 
                     </div>
 
@@ -710,6 +792,34 @@ export default function WorkspacePanel({
                     )}
 
                 </div>
+
+            )}
+
+            {/* ---------------------------------------------------------
+                Original Image Crop (v1.4.0) - only ever opened against
+                this Workspace's own uploadedImagePath (the untouched
+                original), never against a Crop result.
+            ---------------------------------------------------------- */}
+
+            {showCropModal && workspace.uploadedImagePath && (
+
+                <CropModal
+
+                    imageDataUrl={workspace.uploadedImagePath}
+
+                    initialCropRect={workspace.cropRect}
+
+                    onApply={(croppedDataUrl, cropRect) => {
+
+                        onApplyCrop(croppedDataUrl, cropRect);
+
+                        setShowCropModal(false);
+
+                    }}
+
+                    onCancel={() => setShowCropModal(false)}
+
+                />
 
             )}
 

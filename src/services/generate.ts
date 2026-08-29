@@ -301,19 +301,30 @@ export async function runGenerate({
         // =====================================================================
         // 2. Upload the Workspace's image into ChatGPT, then wait for it to
         //    complete (skipped entirely when no image is attached).
+        //
+        //    Original Image Crop (v1.4.0): if this Workspace has a
+        //    confirmed Crop, its own separate bitmap (croppedImagePath) is
+        //    uploaded instead of the untouched original - this is the
+        //    ONLY place that decision is made. uploadedImagePath itself is
+        //    never mutated or read anywhere else in this function, so a
+        //    Crop-less Generate is byte-for-byte the same pipeline as
+        //    before this feature existed.
         // =====================================================================
 
-        if (workspace.uploadedImagePath) {
+        const activeImagePath = workspace.croppedImagePath ?? workspace.uploadedImagePath;
+
+        if (activeImagePath) {
 
             logWorkspaceEvent(workspace.id, "Upload Start", {
                 webContentsId: browser.getWebContentsId(),
+                cropped: !!workspace.croppedImagePath,
             });
 
             logPipelineStage(debugSessionId, workspace.id, "Image Upload Start");
 
             const uploadResult = await browser.execute(
 
-                buildUploadImageScript(workspace.uploadedImagePath)
+                buildUploadImageScript(activeImagePath)
 
             ) as {
                 success: boolean;
@@ -808,14 +819,21 @@ export async function runGenerate({
         //    away - a Workspace must never stay stuck showing "Completed".
         //    The Prompt/selectedPromptId stay untouched, since the normal
         //    flow is picking a Prompt once and generating several images
-        //    with it; only the consumed upload is cleared.
+        //    with it; only the consumed upload (and, if this run used
+        //    one, its consumed Crop - v1.4.0) is cleared.
         // =====================================================================
 
         await new Promise(resolve => setTimeout(resolve, 1500));
 
         onUpdate(w => (
             w.status === "done"
-                ? { ...w, status: "waiting", uploadedImagePath: undefined }
+                ? {
+                      ...w,
+                      status: "waiting",
+                      uploadedImagePath: undefined,
+                      croppedImagePath: undefined,
+                      cropRect: undefined,
+                  }
                 : w
         ));
 

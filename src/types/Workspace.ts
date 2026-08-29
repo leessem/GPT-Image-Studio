@@ -22,6 +22,23 @@ export type WorkspaceStatus =
      */
     | "revising";
 
+/**
+ * Original Image Crop (v1.4.0): a selection rectangle expressed in the
+ * uploaded original image's own natural pixel coordinates (never CSS/
+ * display pixels) - see CropModal.tsx for how it's produced.
+ */
+export interface CropRect {
+
+    x: number;
+
+    y: number;
+
+    width: number;
+
+    height: number;
+
+}
+
 export interface Workspace {
 
     id: string;
@@ -105,6 +122,29 @@ export interface Workspace {
      * buildPromptScript - see generate.ts's own comment at that branch.
      */
     txtAttachmentMode?: boolean;
+
+    /**
+     * Original Image Crop (v1.4.0): the last confirmed Crop selection on
+     * this Workspace's current `uploadedImagePath`, kept so re-opening
+     * the Crop UI starts from it instead of the full image again.
+     * Cleared whenever `uploadedImagePath` itself is replaced or removed
+     * (see WorkspaceService.setWorkspaceUploadedImage) - a stale
+     * selection must never carry over onto a different original image.
+     */
+    cropRect?: CropRect;
+
+    /**
+     * Original Image Crop (v1.4.0): the confirmed Crop result, as its
+     * own separate data URL bitmap at the crop's real pixel resolution -
+     * never a mutation of `uploadedImagePath`, which always stays the
+     * untouched original. `generate.ts` uploads
+     * `croppedImagePath ?? uploadedImagePath` to ChatGPT; every other
+     * use of `uploadedImagePath` (Image preview, 원본 교체, 삭제) is
+     * unaffected. Cleared together with cropRect whenever the original
+     * is replaced/removed, and consumed (cleared) the same moment
+     * `uploadedImagePath` is consumed after a successful Generate.
+     */
+    croppedImagePath?: string;
 
 }
 

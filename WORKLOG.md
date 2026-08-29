@@ -3869,3 +3869,143 @@ window:
   case) is a low-risk, easily-reverted addition either way.
 - No changes to normal (non-TXT) Generate, `revise.ts`, {NAME}/{NUM}/
   {COLOR} substitution itself, Work Type, or Backup/Restore.
+
+## Session 34 (2026-08-29): Version 1.4.0 - Original Image Crop
+
+New feature, not a bug fix: lets the user crop a Workspace's uploaded
+original image down to a sub-region before Generate, without ever
+losing or overwriting the original.
+
+### Design, matched to the actual current architecture (not the stale
+Project/Tab/Job description that used to live in CLAUDE.md)
+
+Read the real HEAD code first, per instruction: there is no Job/
+Project/Tab nesting anymore (that was removed at V1.0 - see the
+History section above) - `Workspace` (`src/types/Workspace.ts`) is the
+only unit, and its uploaded image is a single field,
+`uploadedImagePath` (a data URL, never a disk file until Generate
+downloads a result). `generate.ts` reads that field directly and
+passes it straight into `buildUploadImageScript` (`ChatGPT.ts`) - no
+existing temp-file plumbing to reuse, so the Crop result also stays an
+in-memory data URL, matching the existing pattern exactly instead of
+inventing a new one.
+
+Added two new optional `Workspace` fields instead of mutating
+`uploadedImagePath`: `cropRect` (the last confirmed selection, in the
+original's own natural pixel coordinates) and `croppedImagePath` (the
+confirmed Crop result, its own separate data URL bitmap).
+`uploadedImagePath` itself is never written to or read differently -
+every existing read of it (Image preview, revise.ts's re-upload of a
+*result* image, Backup/Restore, which never touched Workspace state at
+all since it's runtime-only) is completely unaffected.
+
+### Implementation
+
+- `src/types/Workspace.ts`: added `CropRect` and the two new optional
+  `Workspace` fields above, each documented with why it's separate
+  from `uploadedImagePath`.
+- `src/services/WorkspaceService.ts`: `setWorkspaceUploadedImage` now
+  also resets `cropRect`/`croppedImagePath` to `undefined` on every
+  call - covers both "원본 교체" (replace) and "삭제" (remove) in one
+  place, satisfying the spec's "replacing the original must discard
+  its Crop" requirement without a separate code path. Added
+  `setWorkspaceCrop` (confirms a Crop) alongside it.
+- `src/components/Workspace/CropModal.tsx` + `CropModal.css` (new): a
+  small in-house Crop UI - no new dependency added, per instruction
+  ("새로운 대형 라이브러리를 무조건 추가하지 않는다"). All drag/
+  resize math is done in the original image's own natural pixel
+  coordinates throughout (`toNaturalPoint` maps a mouse event through
+  the displayed `<img>`'s `getBoundingClientRect()` scale factor); the
+  on-screen selection box is only that rectangle scaled back to
+  display size for drawing. Apply crops via an offscreen `<canvas>`
+  `drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)` at the selection's
+  real pixel size - never a scaled-down screen capture, so a 1000×800
+  selection out of a 4000×3000 original stays a real 1000×800 bitmap.
+  4 corner handles resize, dragging inside the box moves it, dragging
+  on the dimmed surface starts a fresh selection; the rect is clamped
+  to the image bounds on every move and snapped up to a 20px minimum
+  on drag-end. 적용/초기화/취소 match the spec exactly; Reset only
+  widens the in-progress selection back to full-image, it doesn't
+  confirm anything until Apply is clicked. ESC cancels, same pattern
+  as `PromptModal.tsx`.
+  - The stable-identity drag callbacks (`onDragMove`/`onDragEnd`/
+    `toNaturalPoint`/`syncDisplaySize`, all `useCallback` reading only
+    refs) were deliberately written to keep one identity for the whole
+    modal's mounted lifetime, specifically so
+    `window.addEventListener`/`removeEventListener` pairs always match
+    - otherwise a re-render mid-drag (which `setRect` causes on every
+      mouse-move) would remove a different function than the one that
+      was actually attached, leaking a `window`-level listener.
+    Needed to get this right for `eslint-plugin-react-hooks`'
+    `exhaustive-deps` to pass cleanly too, since this repo's `npm run
+    lint` runs with `--max-warnings 0`.
+- `src/components/Workspace/WorkspacePanel.tsx`: replaced the single
+  "Remove" button under the Image preview with the spec's exact three
+  buttons (원본 교체 / 크롭 / 삭제), all disabled while
+  `running`/`revising` (same guard pattern already used for Clear/커스텀
+  수정). Added a "✂ Crop 적용됨" status line once `croppedImagePath` is
+  set. `showCropModal` is local transient UI state, force-closed on
+  Workspace switch - same established pattern as
+  `showClearedMessage`/`showReviseInput` in this same file.
+  - **Follow-up per live user feedback** ("크롭된 이미지로 표시가
+    되면 좋겠어"): the preview `<img>` now shows
+    `croppedImagePath ?? uploadedImagePath` (same precedence
+    generate.ts uses) instead of always the untouched original, so the
+    panel visually reflects what will actually be uploaded. [크롭]
+    itself still always re-opens `CropModal` against the real
+    `uploadedImagePath`, never against this cropped preview, so
+    re-editing can still widen back out past the current selection.
+- `src/components/Workspace/Workspace.tsx`: added `onApplyCrop`,
+  wired the same way as every other per-Workspace setter in this file
+  (`setWorkspacesLogged` + a `WorkspaceService` function keyed by
+  `currentWorkspace.id`).
+- `src/services/generate.ts`: the ONLY pipeline change - one new
+  `const activeImagePath = workspace.croppedImagePath ??
+  workspace.uploadedImagePath` right before the existing Upload step,
+  and `buildUploadImageScript(activeImagePath)` instead of
+  `buildUploadImageScript(workspace.uploadedImagePath)`. Everything
+  else in the verified v1.2.5 pipeline (composer-ready check, upload-
+  wait, preview-race guard, prompt insertion/verification, Send,
+  generation wait, viewer, download, filename, Ready-reset) is
+  untouched, per instruction not to re-design that pipeline for this
+  feature. The post-Generate Ready-reset now also clears
+  `croppedImagePath`/`cropRect` alongside the already-cleared
+  `uploadedImagePath`, so a consumed Crop can't silently carry over to
+  the Workspace's next, unrelated upload.
+  - `revise.ts` was read and confirmed untouched - it re-uploads the
+    Workspace's existing *result* image (`workspace.imagePath`) for a
+    2nd-pass edit, unrelated to the original-image Crop feature
+    entirely.
+
+### An incident during live verification, and how it was handled
+
+While testing the running dev build with simulated mouse
+clicks/coordinates, a `SetForegroundWindow` call silently failed
+(a known Win32 restriction) and a blind click landed on an unrelated,
+already-open window instead of the app - which briefly opened one of
+the user's own real personal photos in a photo viewer. Caught
+immediately, closed via Escape without further inspection, disclosed
+to the user right away, and all further coordinate-based GUI
+automation was stopped in favor of the user testing the real dev
+build themselves. Recorded here as the reason this session's live
+verification was user-driven rather than fully automated.
+
+### Verification
+
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx --report-unused-
+  disable-directives --max-warnings 0`: clean, both before and after
+  the preview-precedence follow-up change.
+- `npm run dev` boot check: app starts and stays up, no console
+  errors; confirmed via a real running window screenshot (not just a
+  clean exit code).
+- Live-verified by the user directly in the running dev build (see
+  the WS-AUDIT log): uploaded an image, opened Crop, applied a
+  selection (`origin=applyCrop` logged with no error), replaced/
+  removed the image afterward - and, separately in the same session,
+  a completely normal (no-Crop) Generate ran to full completion
+  (`Generate Complete` -> real saved file
+  `★_만삭_미카.png`) confirming the untouched-pipeline claim above
+  isn't just a read of the diff. The user's own verdict: "기능
+  구현이 잘된거 같아" (looks well implemented), followed by the one
+  preview-precedence request folded in above.
+- `package.json` 1.3.2 -> 1.4.0, per explicit user instruction.

@@ -16,7 +16,7 @@ import WorkspaceTabs from "./WorkspaceTabs";
 import WorkspacePanel from "./WorkspacePanel";
 import FirstLaunchNotice from "../FirstLaunchNotice/FirstLaunchNotice";
 
-import { type Workspace, createWorkspace } from "../../types/Workspace";
+import { type Workspace, type CropRect, createWorkspace } from "../../types/Workspace";
 import { PromptDraft, PromptItem } from "../../types/Prompt";
 import { WorkType } from "../../types/WorkType";
 
@@ -49,6 +49,7 @@ import {
     setWorkspacePrompt,
     setWorkspaceWorkType,
     setWorkspaceUploadedImage,
+    setWorkspaceCrop,
     setWorkspaceCustomerName,
     setWorkspaceCustomerNumber,
     setWorkspaceCustomerColor,
@@ -527,6 +528,19 @@ export default function Workspace() {
 
     };
 
+    // Original Image Crop (v1.4.0) - confirms a Crop selection made
+    // against this Workspace's own uploadedImagePath. Never touches
+    // uploadedImagePath itself; generate.ts prefers croppedImagePath
+    // over it when present (see generate.ts's own comment at that
+    // branch).
+    const onApplyCrop = (croppedDataUrl: string, cropRect: CropRect) => {
+
+        setWorkspacesLogged("applyCrop", prev =>
+            setWorkspaceCrop(prev, currentWorkspace.id, croppedDataUrl, cropRect)
+        );
+
+    };
+
     const onSelectPrompt = (promptId: string) => {
 
         const item = prompts.find(p => p.id === promptId);
@@ -711,6 +725,8 @@ export default function Workspace() {
                     onUploadImage={onUploadImage}
 
                     onRemoveImage={onRemoveImage}
+
+                    onApplyCrop={onApplyCrop}
 
                     onSelectPrompt={onSelectPrompt}
 
