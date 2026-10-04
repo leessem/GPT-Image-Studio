@@ -1,7 +1,7 @@
 // electron/main.ts
 // ===== COMPLETE FILE =====
 
-import { app, BrowserWindow, session, dialog, shell, webContents } from "electron";
+import { app, BrowserWindow, session, dialog, shell, webContents, Notification } from "electron";
 import { ipcMain } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -98,6 +98,9 @@ interface PersistedSettings {
   filenamePrefix?: string;
   firstLaunchNoticeShown?: boolean;
   debugMode?: boolean;
+  // v1.5.1: Windows toast on every successful image save. Missing
+  // (older settings.json) means on - the feature's default.
+  notificationsEnabled?: boolean;
 }
 
 function loadSettings(): PersistedSettings {
@@ -447,6 +450,16 @@ function buildRevisionFilename(dir: string, sourceFilePath: string): string {
 
   return `${candidateBase}${ext}`;
 
+}
+
+// v1.5.1: Windows only shows toast notifications for an app that has an
+// AppUserModelID. Packaged builds use the same appId electron-builder
+// stamps onto the installer's Start Menu shortcut; dev runs fall back
+// to the electron.exe path, Electron's documented dev-mode convention.
+if (process.platform === "win32") {
+  app.setAppUserModelId(
+    app.isPackaged ? "com.leessem.gptimagestudio" : process.execPath
+  );
 }
 
 app.on("second-instance", () => {
@@ -816,6 +829,72 @@ app.whenReady().then(() => {
 
   ipcMain.handle("settings:getDebugLogsPath", () => debugLogsDir);
 
+  // ===============================
+  // v1.5.1 - "image saved" Windows notification, one per tab
+  // ===============================
+
+  ipcMain.handle(
+    "settings:getNotificationsEnabled",
+    () => persistedSettings.notificationsEnabled ?? true
+  );
+
+  ipcMain.handle("settings:setNotificationsEnabled", (_, value: boolean) => {
+    persistedSettings.notificationsEnabled = value;
+
+    saveSettings(persistedSettings);
+
+    return { success: true };
+  });
+
+  // Held until the toast is dismissed or clicked - an unreferenced
+  // Notification can be garbage-collected while still on screen, which
+  // silently drops its click handler.
+  const activeNotifications = new Set<Notification>();
+
+  // Renderer calls this once a Generate/Revise result is verified on
+  // disk. The toast names the tab it came from, and clicking it brings
+  // the window forward and switches to that tab.
+  ipcMain.handle(
+    "notify:imageSaved",
+    (_, payload: { workspaceId: string; tabName: string; fileName: string }) => {
+      if (
+        (persistedSettings.notificationsEnabled ?? true) === false ||
+        !Notification.isSupported()
+      ) {
+        return { shown: false };
+      }
+
+      const notification = new Notification({
+        title: `[${payload.tabName}] 이미지 저장 완료`,
+        body: payload.fileName,
+        icon: path.join(process.env.VITE_PUBLIC, "icon.ico"),
+      });
+
+      activeNotifications.add(notification);
+
+      notification.on("close", () => {
+        activeNotifications.delete(notification);
+      });
+
+      notification.on("click", () => {
+        activeNotifications.delete(notification);
+
+        if (!win) return;
+
+        if (win.isMinimized()) win.restore();
+
+        win.show();
+        win.focus();
+
+        win.webContents.send("notify:focusWorkspace", payload.workspaceId);
+      });
+
+      notification.show();
+
+      return { shown: true };
+    }
+  );
+
   // Single funnel for the five pre-formatted-line log files
   // (pipeline/prompt/workspace/dom/error) - mirrors the existing
   // "ws-audit:log" handler above exactly, just written into a specific
@@ -978,6 +1057,49 @@ app.whenReady().then(() => {
         fs.writeFileSync(filePath, image.toPNG());
 
         return { success: true, filePath };
+      }
+      catch (err) {
+        return { success: false, error: String(err) };
+      }
+    }
+  );
+
+  // Export Diagnostics (ChatGPT UI update, 2026-10): records the current
+  // tab's live page state at the moment of export - a read-only image
+  // survey (script built by the renderer from ChatGPT.ts) plus a
+  // screenshot - so a run that is stuck, not failed, still leaves
+  // evidence in the zip.
+  ipcMain.handle(
+    "debug:captureLiveSnapshot",
+    async (_, sessionId: string, workspaceId: string, surveyScript: string) => {
+      if (!debugMode)
+        return { success: false };
+
+      try {
+        const webContentsId = workspaceWebContentsIds.get(workspaceId);
+        const contents = webContentsId !== undefined
+          ? webContents.fromId(webContentsId)
+          : undefined;
+
+        if (!contents) {
+          return { success: false, error: "no webview webContents for this workspace" };
+        }
+
+        const dir = ensureSessionDir(sessionId);
+
+        const survey = await contents.executeJavaScript(surveyScript);
+
+        fs.writeFileSync(
+          path.join(dir, "live_page_survey.json"),
+          typeof survey === "string" ? survey : JSON.stringify(survey, null, 2),
+          "utf-8"
+        );
+
+        const image = await contents.capturePage();
+
+        fs.writeFileSync(path.join(dir, "screenshot_at_export.png"), image.toPNG());
+
+        return { success: true };
       }
       catch (err) {
         return { success: false, error: String(err) };

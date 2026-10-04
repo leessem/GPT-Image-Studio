@@ -1,5 +1,25 @@
 # ROADMAP
 
+## Version 1.5.1 - RELEASED (2026-10-04)
+
+ChatGPT 2026-10 UI update compatibility, plus three user-requested
+features. Every selector change was made from a real Diagnostics
+capture (live_page_survey.json / composer.html / screenshots), not
+guessed.
+
+- Composer / Send button / upload-completion / prompt-settle /
+  generated-image / viewer-open / download-button fixes in
+  `ChatGPT.ts`; unbounded waits (generated image, viewer) now time out.
+- Windows "image saved" notification per tab (Electron `Notification`
+  from main.ts, AppUserModelID set), click switches to that tab;
+  Settings > Notifications toggle (`notificationsEnabled` in
+  settings.json, default on).
+- Prompt Favorites (`PromptItem.favorite`, `PromptStore.setFavorite`),
+  starred first in the Prompt dropdown; "Prompt Library" shown as
+  "Prompt Settings".
+- "탭초기화" (renamed from "탭 전체 닫기"), always shown and enabled.
+- Export Diagnostics captures live page state at export time.
+
 ## Version 1.4.1 - RELEASED (2026-08-29)
 
 Multi Image Upload: a Workspace can now select up to 5 images (1

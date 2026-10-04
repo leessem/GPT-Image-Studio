@@ -402,8 +402,19 @@ export async function runGenerate({
                     stepName?: string;
                     selector?: string;
                     domSnapshot?: unknown;
+                    attachmentStates?: string[];
                     reason?: string;
                 } | undefined;
+
+                // Debug Mode only (no-op otherwise): every distinct
+                // attachment-tile markup seen while waiting, so a
+                // Diagnostics zip shows ChatGPT's real in-progress upload
+                // DOM - see buildWaitUploadScript's own comment.
+                logPipelineStage(debugSessionId, workspace.id, "Image Upload Wait Result", {
+                    imageIndex,
+                    success: !!uploadWaitResult?.success,
+                    attachmentStates: uploadWaitResult?.attachmentStates ?? [],
+                });
 
                 if (!uploadWaitResult?.success) {
 
@@ -657,13 +668,28 @@ export async function runGenerate({
 
             buildWaitImageScript()
 
-        ) as { success: boolean } | undefined;
+        ) as {
+            success: boolean;
+            reason?: string;
+            imagegenContainerCount?: number;
+            newImages?: unknown[];
+        } | undefined;
 
         if (!waitResult?.success) {
 
-            console.error("[Generate] FAILED - image generation was not detected");
+            console.error("[Generate] FAILED - image generation was not detected", waitResult);
 
-            raiseError("image-generation-not-detected");
+            // Debug Mode only: the DOM survey of images that appeared
+            // while waiting - see buildWaitImageScript's own comment.
+            logPipelineStage(debugSessionId, workspace.id, "Image Detection Failed", {
+                reason: waitResult?.reason ?? "no result",
+                imagegenContainerCount: waitResult?.imagegenContainerCount ?? null,
+                newImages: waitResult?.newImages ?? [],
+            });
+
+            raiseError("image-generation-not-detected", {
+                detail: waitResult?.reason ?? "no result",
+            });
 
             return;
 
@@ -681,7 +707,12 @@ export async function runGenerate({
 
             buildOpenImageViewerScript()
 
-        ) as { success: boolean; reason?: string } | undefined;
+        ) as { success: boolean; reason?: string; matchedBy?: string } | undefined;
+
+        logPipelineStage(debugSessionId, workspace.id, "Image Viewer Open Attempt", {
+            success: !!openViewerResult?.success,
+            matchedBy: openViewerResult?.matchedBy ?? null,
+        });
 
         if (!openViewerResult?.success) {
 
@@ -743,13 +774,26 @@ export async function runGenerate({
 
             buildClickDownloadButtonScript()
 
-        ) as { success: boolean; reason?: string } | undefined;
+        ) as {
+            success: boolean;
+            reason?: string;
+            dialogFound?: boolean;
+            candidates?: unknown[];
+        } | undefined;
 
         if (!downloadClickResult?.success) {
 
             console.error(
                 `[Generate] Download button not found: ${downloadClickResult?.reason ?? "no result"}`
             );
+
+            // Debug Mode only: the viewer's actual controls, so the new
+            // download control can be read off a Diagnostics zip.
+            logPipelineStage(debugSessionId, workspace.id, "Download Button Not Found", {
+                reason: downloadClickResult?.reason ?? "no result",
+                dialogFound: downloadClickResult?.dialogFound ?? null,
+                candidates: downloadClickResult?.candidates ?? [],
+            });
 
             raiseError("download-button-not-found", {
                 detail: downloadClickResult?.reason ?? "no result",
@@ -855,6 +899,17 @@ export async function runGenerate({
         logWorkspaceEvent(workspace.id, "Generate Complete", {
             webContentsId: browser.getWebContentsId(),
             imagePath,
+        });
+
+        // v1.5.1: Windows toast naming this tab (main.ts skips it when
+        // Settings > Notifications is off). Never allowed to affect the
+        // Generate result itself.
+        window.ipcRenderer.notify.imageSaved({
+            workspaceId: workspace.id,
+            tabName: workspace.name,
+            fileName: imagePath.split(/[\\/]/).pop() ?? imagePath,
+        }).catch(err => {
+            console.error("[Generate] Saved-image notification failed", err);
         });
 
         console.log("[Generate] ==== done ====");

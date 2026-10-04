@@ -758,15 +758,20 @@ export default function WorkspacePanel({
 
                     <option value="" disabled>
 
-                        Select a prompt from the Library...
+                        Select a prompt from Prompt Settings...
 
                     </option>
 
-                    {prompts.map(item => (
+                    {/* Favorites (v1.5.1): starred prompts first, each
+                        group keeping its own Prompt Settings order. */}
+                    {[
+                        ...prompts.filter(item => item.favorite),
+                        ...prompts.filter(item => !item.favorite),
+                    ].map(item => (
 
                         <option key={item.id} value={item.id}>
 
-                            {item.title}
+                            {item.favorite ? `★ ${item.title}` : item.title}
 
                         </option>
 

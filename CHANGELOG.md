@@ -2,6 +2,37 @@
 
 All notable changes to GPT Image Studio are documented in this file.
 
+## Version 1.5.1 (2026-10-04)
+
+**Fixed automation after ChatGPT's 2026-10 UI update, and added
+save notifications, prompt Favorites, and a 탭초기화 button.**
+
+- ChatGPT's redesigned page broke every Generate step; each one was
+  re-pointed at the new page, confirmed from real Diagnostics captures:
+  - the message composer (no longer `#prompt-textarea`) and the Send
+    button (no longer `#composer-submit-button`);
+  - image upload now waits until ChatGPT's own upload progress
+    indicator is gone, instead of sending while the image is still
+    uploading;
+  - the prompt is re-checked one second after pasting, before Send -
+    fixes messages that went out with only the image and no prompt;
+  - the generated image (now `generated-image-preview`), the new
+    full-screen image viewer, and its "다운로드" button.
+- Steps that could previously wait forever (generated image, image
+  viewer) now time out with an error instead of hanging.
+- **Windows notification on save**: every tab shows a notification at
+  the bottom-right of the screen when its image is saved, titled with
+  the tab's name. Clicking it switches to that tab. Can be turned off in
+  Settings > Notifications.
+- **Prompt Favorites**: a ☆/★ toggle on each prompt; starred prompts are
+  listed first (marked ★) in the Workspace Prompt dropdown. Included in
+  Backup/Restore.
+- The left panel is now called **Prompt Settings** (was Prompt Library).
+- "탭 전체 닫기" is renamed **탭초기화** and is always available, even with
+  a single tab or while a tab is generating.
+- Export Diagnostics now also records the current tab's live page state
+  (image/viewer structure and a screenshot) at the moment of export.
+
 ## Version 1.4.0 (2026-08-29)
 
 **Added Original Image Crop.**

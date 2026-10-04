@@ -514,6 +514,17 @@ export async function runReviseImage({
             imagePath: newImagePath,
         });
 
+        // v1.5.1: Windows toast naming this tab (main.ts skips it when
+        // Settings > Notifications is off). Never allowed to affect the
+        // Revise result itself.
+        window.ipcRenderer.notify.imageSaved({
+            workspaceId: workspace.id,
+            tabName: workspace.name,
+            fileName: newImagePath.split(/[\\/]/).pop() ?? newImagePath,
+        }).catch(err => {
+            console.error("[Revise] Saved-image notification failed", err);
+        });
+
         console.log("[Revise] ==== done ====");
 
         // Same brief "show completed, then return to Ready" behavior as

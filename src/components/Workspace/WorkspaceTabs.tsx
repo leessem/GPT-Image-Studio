@@ -23,8 +23,8 @@ interface WorkspaceTabsProps {
 
     onDelete: (id: string) => void;
 
-    /** Closes every open Workspace tab at once, replacing them with a
-     *  single fresh one. */
+    /** "탭초기화" - closes every open Workspace tab at once, replacing
+     *  them with a single fresh one. */
     onClearAll: () => void;
 
 }
@@ -65,14 +65,6 @@ export default function WorkspaceTabs({
     onClearAll,
 
 }: WorkspaceTabsProps) {
-
-    // "탭 클리어" - blocked while any Workspace is mid-generation/
-    // revision so one click can never silently discard an in-flight
-    // run (individual ✕ close has no such guard, but discarding every
-    // tab at once is a bigger blast radius than closing one).
-    const anyBusy = workspaces.some(
-        w => w.status === "running" || w.status === "revising"
-    );
 
     return (
 
@@ -135,25 +127,22 @@ export default function WorkspaceTabs({
 
             </button>
 
-            {workspaces.length > 1 && (
+            {/* v1.5.1: always shown and always enabled, per user request -
+                including with a single tab and while a tab is generating
+                (resetting then discards that in-flight run). */}
+            <button
 
-                <button
+                className="workspace-tabs-clear-all"
 
-                    className="workspace-tabs-clear-all"
+                title="열려 있는 탭을 모두 닫고 새 탭 하나로 초기화합니다"
 
-                    disabled={anyBusy}
+                onClick={onClearAll}
 
-                    title={anyBusy ? "생성/수정 중인 탭이 있어 비활성화됨" : "열려 있는 탭을 모두 닫습니다"}
+            >
 
-                    onClick={onClearAll}
+                탭초기화
 
-                >
-
-                    탭 전체 닫기
-
-                </button>
-
-            )}
+            </button>
 
         </div>
 

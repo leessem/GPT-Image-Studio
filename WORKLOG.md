@@ -4214,3 +4214,130 @@ asked for three small refinements:
   here rather than silently assumed.
 - Marked RELEASED in ROADMAP.md per explicit user instruction to
   commit/push/release this version.
+
+## Session 36 (2026-10-04): ChatGPT composer selector update
+
+ChatGPT's UI changed: the composer lost its `id="prompt-textarea"`
+(confirmed from a user-submitted Diagnostics zip - `error.log` showed
+`stage=composer-not-ready`, and `composer.html`/`composer.txt` were
+both empty). The real composer is now a ProseMirror contenteditable
+div (`role="textbox"`, no id/data-testid).
+
+- `ChatGPT.ts`: new shared `COMPOSER_SELECTOR =
+  '#prompt-textarea, div[contenteditable="true"][role="textbox"]'`,
+  replacing every hardcoded `#prompt-textarea` lookup (prompt insert,
+  send/verify, TXT mode, close viewer, DOM snapshot, upload scope,
+  normal-chat check, clear composer, wait-ready, DOM observer, composer
+  snapshot). The old id is kept first for backward compatibility.
+- `buildCaptureComposerSnapshotScript`: when no composer is found, it
+  now records a DOM survey (contenteditables, textareas, placeholder-
+  text containers) instead of returning empty, so a future selector
+  change leaves diagnosable evidence.
+- Session was interrupted by a VS Code crash; resumed and re-verified.
+- `npx tsc --noEmit` / `npx eslint . --ext ts,tsx`: clean. Dev build
+  relaunched for live testing. Not yet live-confirmed end-to-end
+  against real ChatGPT by this session.
+
+### Follow-up: upload detection + send button (same day)
+
+A second Diagnostics zip (`Diagnostics_2026-10-04_03-05-18`) confirmed
+the composer fix worked; the run now failed at
+`stage=upload-preview-detected`. The captured `composer.html` showed:
+
+- The upload thumbnail is now `<img src="data:image/...">` inside
+  `[data-composer-attachments]` (no `/backend-api/estuary/content` URL),
+  so `buildWaitUploadScript` never matched. It now accepts both forms;
+  for a `data:` preview it also waits for the send button to not be
+  disabled (no-op if missing).
+- The send button lost `id="composer-submit-button"` - it is now
+  `form[data-chatgpt-composer] button[type="submit"]`. New shared
+  `SEND_BUTTON_SELECTOR` (old id kept first) used by
+  `buildPromptScript`, `buildTxtPromptScript`, and the DOM observer.
+- tsc/eslint clean. Awaiting live user test.
+
+### Follow-up 2: upload-in-progress send + false retry failure (same day)
+
+Third Diagnostics zip (`Diagnostics_2026-10-04_03-10-48`): upload,
+paste and verification passed, but the message reached ChatGPT with
+the image only (no prompt text), and the run failed with
+`send-button-not-found`.
+
+- `screenshot_before_send.png` showed the thumbnail tile still
+  uploading (grey + spinner) when Send was clicked - the new UI's
+  `data:` thumbnail appears immediately and the send button stays
+  enabled throughout, so the previous gate didn't hold.
+  `buildWaitUploadScript` now treats each `[data-composer-attachments]
+  [role="button"]` tile as done only when it has an `<img>` and no
+  loading indicator (svg outside its remove button, animate-spin,
+  progressbar, aria-busy), held for 1s; timeout raised 20s -> 60s.
+  Every distinct tile markup seen is returned as `attachmentStates`
+  and logged (Debug Mode) as `Image Upload Wait Result`, so the real
+  in-progress DOM will appear in the next Diagnostics. Checked offline
+  with linkedom against the captured finished-tile DOM (not busy) and
+  a synthetic spinner tile (busy).
+- Timeline showed only one click (30.077) - the message was actually
+  sent, accepted after the 3s window; the retry then found no send
+  button (ChatGPT swaps it for the voice button on an empty composer).
+  Both send scripts now re-run `checkAccepted()` before every retry
+  click and succeed if the earlier click was accepted late.
+- tsc/eslint clean; all generated injected scripts parse. Awaiting
+  live user test.
+
+### Follow-up 3: prompt text missing from sent message (same day)
+
+Fourth Diagnostics zip (`Diagnostics_2026-10-04_03-41-01`) + user
+screenshot `K-003.png`:
+
+- Upload wait now works: `attachmentStates` captured the real
+  in-progress tile - `<img src="blob:...">` plus
+  `<span role="progressbar" aria-label="upload.png 업로드 중">` (svg
+  ring) - and Step 5 waited ~4.4s until it cleared.
+- Still sent image-only: paste 10.822, verification pass 10.824, Send
+  click 10.881 (59ms later), no error, ChatGPT replied asking what to
+  do. The composer DOM had the text but the submitted message didn't.
+- Root cause NOT yet confirmed live (a temporary CDP
+  `remote-debugging-port` inspection was blocked by the permission
+  policy and not pursued). Applied the low-risk mitigation:
+  `buildInsertPromptTextSnippet` now waits 1s after verification and
+  re-verifies the composer text before allowing Send, failing as
+  `prompt-lost-after-paste` instead of sending image-only.
+- tsc/eslint clean; injected scripts parse. Awaiting live user test.
+  If this does not fix it, next candidate is trusted native input
+  (`<webview>.insertText`) instead of a synthetic paste event.
+- **Result:** confirmed live - the next run sent image + prompt and
+  ChatGPT generated the image.
+
+### Follow-up 4: generated image never detected / saved (same day)
+
+- The run hung after generation with no error: `buildWaitImageScript`
+  had no timeout, and its selector (`imagegen-image` container +
+  backend-api URL) matched nothing in the new UI. Added a 180s timeout
+  with a new-image survey, and Export Diagnostics now captures
+  `live_page_survey.json` + `screenshot_at_export.png` from the tab's
+  live webview (new `debug:captureLiveSnapshot` IPC) so a stuck run
+  leaves evidence immediately.
+- The survey showed generated images are now
+  `button[data-testid="generated-image-preview"] > img[alt="생성된
+  이미지 1"][src=blob:]` inside `generated-image-gallery`. Detection now
+  also requires the newest image loaded, src stable, no stop button,
+  held 2s. Opening it clicks that preview button, escalating to an
+  image click and then a pointer-event sequence if no viewer opens
+  within 2.5s (one run opened instantly, another never opened on a
+  single `.click()`).
+- The new viewer's controls (captured `dialogControls`) include an
+  icon-only `aria-label="다운로드"` button - added "다운로드" to the
+  download label candidates, plus a page-wide exact-label fallback.
+  `aria-label="뷰어 닫기"` already matches the close logic's "닫기".
+- **Result:** confirmed live end-to-end - saved
+  `★_돌_감성 손그림.png` (1,949,081 bytes) verified on disk.
+
+### Features (v1.5.1, user requests)
+
+- Windows "image saved" notification per tab, clickable to switch tabs,
+  with a Settings > Notifications toggle - confirmed live by the user.
+- "탭 전체 닫기" -> "탭초기화", always shown/enabled - confirmed live.
+- Prompt Favorites (☆/★ in the list, starred first in the dropdown) and
+  "Prompt Library" -> "Prompt Settings" - confirmed live by the user.
+- A temporary CDP `remote-debugging-port` inspection was attempted once
+  and blocked by the permission policy; nothing was added to main.ts.
+- Released as v1.5.1.

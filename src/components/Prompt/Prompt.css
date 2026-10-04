@@ -29,10 +29,43 @@
 }
 
 .prompt-library-item{
-    padding:10px 18px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:10px 18px 10px 12px;
     cursor:pointer;
     color:#222222;
     transition:background .15s ease;
+}
+
+.prompt-library-item-title{
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+
+.prompt-library-favorite{
+    flex-shrink:0;
+    width:22px;
+    height:22px;
+    padding:0;
+    border:none;
+    background:transparent;
+    color:#b8bdc5;
+    font-size:16px;
+    line-height:22px;
+    cursor:pointer;
+    border-radius:4px;
+}
+
+.prompt-library-favorite:hover{
+    color:#f5a623;
+    background:#e9ebee;
+}
+
+.prompt-library-favorite.active{
+    color:#f5a623;
 }
 
 .prompt-library-item:hover{

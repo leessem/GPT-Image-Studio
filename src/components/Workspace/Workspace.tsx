@@ -482,6 +482,28 @@ export default function Workspace() {
 
     };
 
+    // v1.5.1: clicking an "image saved" Windows notification (main.ts)
+    // switches to the tab it was raised for - ignored if that tab has
+    // since been closed. No cleanup: preload's `on` wraps the listener,
+    // so `off` with this handler could never remove it anyway; the
+    // handler only switches tabs, so a second registration (React
+    // StrictMode's dev-only double mount) is harmless.
+    useEffect(() => {
+
+        const handler = (_event: unknown, workspaceId: unknown) => {
+
+            if (
+                typeof workspaceId === "string" &&
+                workspacesRef.current.some(w => w.id === workspaceId)
+            )
+                setCurrentWorkspaceId(workspaceId);
+
+        };
+
+        window.ipcRenderer.on("notify:focusWorkspace", handler);
+
+    }, []);
+
     const onSwitchWorkspace = (id: string) => {
 
         setCurrentWorkspaceId(id);
@@ -519,9 +541,9 @@ export default function Workspace() {
     // Closes every open Workspace tab at once, replacing them with a
     // single fresh one - same underlying operation as onDeleteWorkspace
     // above, just applied to the whole list in one click instead of one
-    // tab at a time. Blocked (see WorkspaceTabs' own disabled check)
-    // while any Workspace is "running"/"revising" so an in-flight
-    // generation is never silently discarded by one click.
+    // tab at a time. v1.5.1 ("탭초기화"): always enabled, so this can
+    // also discard a tab that is mid-generation - its webview is
+    // destroyed, so that run ends rather than writing into the new tab.
     const onClearAllWorkspaces = () => {
 
         const { workspaces: next, created } = clearAllWorkspaces();
@@ -714,6 +736,15 @@ export default function Workspace() {
 
     };
 
+    // Favorites (v1.5.1) - the star toggle in the Prompt Settings list.
+    const onToggleFavoritePrompt = (id: string, favorite: boolean) => {
+
+        PromptStore.setFavorite(id, favorite);
+
+        setPrompts(PromptStore.getAll());
+
+    };
+
     return (
 
         <div className="workspace">
@@ -773,6 +804,8 @@ export default function Workspace() {
                         onSavePrompt={onSavePrompt}
 
                         onDeletePrompt={onDeletePrompt}
+
+                        onToggleFavorite={onToggleFavoritePrompt}
 
                     />
 

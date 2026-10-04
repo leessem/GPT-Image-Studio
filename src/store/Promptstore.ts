@@ -54,6 +54,8 @@ function migrateLegacyPrompt(legacy: LegacyPromptItem): PromptItem {
 
         txtAttachmentMode: false,
 
+        favorite: false,
+
     };
 
 }
@@ -86,7 +88,8 @@ function isValidPromptItem(value: unknown): value is PromptItem {
         (item.requiresName === undefined || typeof item.requiresName === "boolean") &&
         (item.requiresNumber === undefined || typeof item.requiresNumber === "boolean") &&
         (item.requiresColor === undefined || typeof item.requiresColor === "boolean") &&
-        (item.txtAttachmentMode === undefined || typeof item.txtAttachmentMode === "boolean")
+        (item.txtAttachmentMode === undefined || typeof item.txtAttachmentMode === "boolean") &&
+        (item.favorite === undefined || typeof item.favorite === "boolean")
     );
 
 }
@@ -123,6 +126,10 @@ export function isValidExportPayload(value: unknown): value is PromptExportItem[
         (
             (entry as PromptExportItem).txtAttachmentMode === undefined ||
             typeof (entry as PromptExportItem).txtAttachmentMode === "boolean"
+        ) &&
+        (
+            (entry as PromptExportItem).favorite === undefined ||
+            typeof (entry as PromptExportItem).favorite === "boolean"
         )
     );
 
@@ -156,6 +163,8 @@ function loadPersistedPrompts(): PromptItem[] | null {
             requiresNumber: item.requiresNumber ?? false,
             requiresColor: item.requiresColor ?? false,
             txtAttachmentMode: item.txtAttachmentMode ?? false,
+            // v1.5.1 - items persisted before Favorites existed.
+            favorite: item.favorite ?? false,
         }));
 
     }
@@ -224,6 +233,8 @@ class PromptStoreImpl {
 
             txtAttachmentMode: draft.txtAttachmentMode,
 
+            favorite: false,
+
         };
 
         this.items = [...this.items, item];
@@ -279,6 +290,21 @@ class PromptStoreImpl {
 
     }
 
+    /**
+     * Favorites (v1.5.1) - toggled from the Prompt Settings list. Updates
+     * in place without touching updatedAt or display order: starring is
+     * a listing preference, not an edit of the prompt itself.
+     */
+    setFavorite(id: string, favorite: boolean): void {
+
+        this.items = this.items.map(item =>
+            item.id === id ? { ...item, favorite } : item
+        );
+
+        this.persist();
+
+    }
+
     remove(id: string): void {
 
         this.items = this.items.filter(item => item.id !== id);
@@ -307,7 +333,7 @@ class PromptStoreImpl {
      */
     exportPayload(): PromptExportItem[] {
 
-        return this.items.map(({ title, prompt, negativePrompt, requiresName, requiresNumber, requiresColor, txtAttachmentMode }) => ({
+        return this.items.map(({ title, prompt, negativePrompt, requiresName, requiresNumber, requiresColor, txtAttachmentMode, favorite }) => ({
             title,
             prompt,
             negativePrompt,
@@ -315,6 +341,7 @@ class PromptStoreImpl {
             requiresNumber,
             requiresColor,
             txtAttachmentMode,
+            favorite,
         }));
 
     }
@@ -354,6 +381,7 @@ class PromptStoreImpl {
                     requiresNumber: entry.requiresNumber ?? false,
                     requiresColor: entry.requiresColor ?? false,
                     txtAttachmentMode: entry.txtAttachmentMode ?? false,
+                    favorite: entry.favorite ?? false,
                     createdAt: now,
                     updatedAt: now,
                 });
@@ -375,6 +403,7 @@ class PromptStoreImpl {
                     requiresNumber: entry.requiresNumber ?? false,
                     requiresColor: entry.requiresColor ?? false,
                     txtAttachmentMode: entry.txtAttachmentMode ?? false,
+                    favorite: entry.favorite ?? items[existingIndex].favorite,
                     updatedAt: now,
                 };
 
@@ -405,6 +434,7 @@ class PromptStoreImpl {
                 requiresNumber: entry.requiresNumber ?? false,
                 requiresColor: entry.requiresColor ?? false,
                 txtAttachmentMode: entry.txtAttachmentMode ?? false,
+                favorite: entry.favorite ?? false,
                 createdAt: now,
                 updatedAt: now,
             });

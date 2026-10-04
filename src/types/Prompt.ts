@@ -53,6 +53,14 @@ export interface PromptItem {
      */
     txtAttachmentMode: boolean;
 
+    /**
+     * Favorites (v1.5.1): starred from the Prompt Settings list. Starred
+     * prompts are listed first in the Workspace panel's Prompt dropdown;
+     * nothing else about the prompt changes. Not part of PromptDraft -
+     * toggled directly via PromptStore.setFavorite, never by the editor.
+     */
+    favorite: boolean;
+
 }
 
 /**
@@ -102,6 +110,9 @@ export interface PromptExportItem {
     requiresColor?: boolean;
 
     txtAttachmentMode?: boolean;
+
+    /** v1.5.1 - optional so older backups import with no favorites. */
+    favorite?: boolean;
 
 }
 

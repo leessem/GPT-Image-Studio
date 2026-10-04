@@ -25,6 +25,8 @@ import {
     type DebugPanelState,
 } from "../../utils/debugLogger";
 
+import { buildPageImageSurveyScript } from "../Browser/ChatGPT";
+
 function formatElapsed(startedAt: number | null): string {
 
     if (!startedAt)
@@ -71,6 +73,21 @@ export default function DebugWindow() {
         }
 
         setExportStatus("Exporting...");
+
+        // Best-effort: record the tab's live page state into this session
+        // first, so a stuck (not failed) run still leaves evidence.
+        if (state.workspaceId) {
+            try {
+                await window.ipcRenderer.debug.captureLiveSnapshot(
+                    state.sessionId,
+                    state.workspaceId,
+                    buildPageImageSurveyScript()
+                );
+            }
+            catch {
+                // never block the export itself
+            }
+        }
 
         const result = await exportDiagnostics(state.sessionId);
 

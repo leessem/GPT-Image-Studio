@@ -158,6 +158,24 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
 
     getDebugLogsPath() {
       return ipcRenderer.invoke("settings:getDebugLogsPath");
+    },
+
+    getNotificationsEnabled() {
+      return ipcRenderer.invoke("settings:getNotificationsEnabled");
+    },
+
+    setNotificationsEnabled(enabled: boolean) {
+      return ipcRenderer.invoke("settings:setNotificationsEnabled", enabled);
+    }
+  },
+
+  // ==========================
+  // Notification API (v1.5.1 - "image saved" Windows toast per tab)
+  // ==========================
+
+  notify: {
+    imageSaved(payload: { workspaceId: string; tabName: string; fileName: string }) {
+      return ipcRenderer.invoke("notify:imageSaved", payload);
     }
   },
 
@@ -218,6 +236,10 @@ contextBridge.exposeInMainWorld("ipcRenderer", {
 
     screenshot(sessionId: string, workspaceId: string, phase: "before_send" | "after_send") {
       return ipcRenderer.invoke("debug:screenshot", sessionId, workspaceId, phase);
+    },
+
+    captureLiveSnapshot(sessionId: string, workspaceId: string, surveyScript: string) {
+      return ipcRenderer.invoke("debug:captureLiveSnapshot", sessionId, workspaceId, surveyScript);
     },
 
     exportDiagnostics(sessionId: string) {
@@ -289,6 +311,18 @@ declare global {
         setDebugMode(enabled: boolean): Promise<{ success: boolean }>;
 
         getDebugLogsPath(): Promise<string>;
+
+        getNotificationsEnabled(): Promise<boolean>;
+
+        setNotificationsEnabled(enabled: boolean): Promise<{ success: boolean }>;
+      };
+
+      notify: {
+        imageSaved(payload: {
+          workspaceId: string;
+          tabName: string;
+          fileName: string;
+        }): Promise<{ shown: boolean }>;
       };
 
       backup: {
@@ -347,6 +381,12 @@ declare global {
           | { success: true; filePath: string }
           | { success: false; error?: string }
         >;
+
+        captureLiveSnapshot(
+          sessionId: string,
+          workspaceId: string,
+          surveyScript: string
+        ): Promise<{ success: boolean; error?: string }>;
 
         exportDiagnostics(sessionId: string): Promise<
           | { success: true; filePath: string }

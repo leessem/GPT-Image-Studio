@@ -26,6 +26,8 @@ interface PromptProps {
 
     onDeletePrompt: (id: string) => void;
 
+    onToggleFavorite: (id: string, favorite: boolean) => void;
+
 }
 
 type ModalState =
@@ -42,6 +44,8 @@ export default function Prompt({
     onSavePrompt,
 
     onDeletePrompt,
+
+    onToggleFavorite,
 
 }: PromptProps) {
 
@@ -80,6 +84,8 @@ export default function Prompt({
                 onSelect={item => setModalState({ mode: "edit", prompt: item })}
 
                 onNew={() => setModalState({ mode: "create" })}
+
+                onToggleFavorite={onToggleFavorite}
 
             />
 

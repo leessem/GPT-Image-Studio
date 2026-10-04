@@ -3,7 +3,10 @@
 //
 // Lightweight template manager: titles only, nothing else. Clicking a
 // title opens it in the edit modal (Prompt.tsx owns that state) - this
-// component never renders prompt content itself.
+// component never renders prompt content itself. Shown to the user as
+// "Prompt Settings" (v1.5.1 rename). Each row has a ☆/★ Favorites
+// toggle (v1.5.1) - starred prompts are listed first in the Workspace
+// panel's Prompt dropdown.
 // ============================================================================
 
 import { PromptItem } from "../../types/Prompt";
@@ -16,6 +19,8 @@ interface PromptLibraryProps {
 
     onNew: () => void;
 
+    onToggleFavorite: (id: string, favorite: boolean) => void;
+
 }
 
 export default function PromptLibrary({
@@ -26,6 +31,8 @@ export default function PromptLibrary({
 
     onNew,
 
+    onToggleFavorite,
+
 }: PromptLibraryProps) {
 
     return (
@@ -34,7 +41,7 @@ export default function PromptLibrary({
 
             <div className="prompt-library-header">
 
-                Prompt Library
+                Prompt Settings
 
             </div>
 
@@ -52,7 +59,34 @@ export default function PromptLibrary({
 
                     >
 
-                        {item.title}
+                        <button
+
+                            className={
+                                "prompt-library-favorite" +
+                                (item.favorite ? " active" : "")
+                            }
+
+                            title={item.favorite ? "즐겨찾기 해제" : "즐겨찾기 (드롭다운 상단에 표시)"}
+
+                            onClick={e => {
+
+                                e.stopPropagation();
+
+                                onToggleFavorite(item.id, !item.favorite);
+
+                            }}
+
+                        >
+
+                            {item.favorite ? "★" : "☆"}
+
+                        </button>
+
+                        <span className="prompt-library-item-title">
+
+                            {item.title}
+
+                        </span>
 
                     </div>
 

@@ -1,3 +1,26 @@
+// ChatGPT UI update (2026-10): confirmed live via a user-submitted
+// Diagnostics zip that the composer element lost its `id="prompt-textarea"`
+// entirely - the real element is now a ProseMirror-driven contenteditable
+// div (`class="ProseMirror"`, `role="textbox"`, no id, no data-testid) with
+// the same live DOM otherwise unchanged. `#prompt-textarea` is kept first
+// in this selector in case ChatGPT ever reinstates it (forward/backward
+// compatible, free - querySelector just returns the first match, and only
+// one composer exists on the page); `div[contenteditable="true"][role="textbox"]`
+// is the confirmed-live replacement, scoped past a bare `[contenteditable="true"]`
+// (which matched exactly 1 element in the captured DOM, but is wide enough
+// to risk matching something else ChatGPT adds later) by also requiring the
+// textbox role the real composer actually carries.
+const COMPOSER_SELECTOR =
+  '#prompt-textarea, div[contenteditable="true"][role="textbox"]';
+
+// ChatGPT UI update (2026-10), same Diagnostics capture as above: the send
+// button also lost its `id="composer-submit-button"` - it is now a plain
+// `<button type="submit" aria-label="보내기">` inside
+// `<form data-chatgpt-composer>` (the only type=submit button in that
+// form). Old id kept first for the same forward/backward reason.
+const SEND_BUTTON_SELECTOR =
+  '#composer-submit-button, form[data-chatgpt-composer] button[type="submit"]';
+
 function buildInsertPromptTextSnippet(prompt: string) {
   return `
   const text = ${JSON.stringify(prompt)};
@@ -82,10 +105,10 @@ function buildInsertPromptTextSnippet(prompt: string) {
     let pastedAt = null;
     let verifiedAt = null;
 
-    const editor = document.querySelector("#prompt-textarea");
+    const editor = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
 
     if (!editor) {
-      console.error("[ChatGPT] #prompt-textarea not found");
+      console.error("[ChatGPT] composer element not found");
       done({
         success: false,
         step: "textarea-not-found",
@@ -94,7 +117,7 @@ function buildInsertPromptTextSnippet(prompt: string) {
       return;
     }
 
-    console.log("[ChatGPT] #prompt-textarea found");
+    console.log("[ChatGPT] composer element found");
 
     editor.focus();
 
@@ -200,11 +223,46 @@ function buildInsertPromptTextSnippet(prompt: string) {
             "[ChatGPT] prompt text inserted and verified, editor.innerText now:",
             editor.innerText
           );
-          done({
-            success: true,
-            step: "inserted",
-            timeline: { clearedAt, pastedAt, verificationStartedAt: verifyStartedAt, verifiedAt }
-          });
+
+          // ChatGPT UI update (2026-10): confirmed via a user-submitted
+          // Diagnostics zip that with the new composer, a Send clicked
+          // ~60ms after this verification passed delivered the image
+          // WITHOUT the prompt text, even though the composer DOM showed
+          // it. Not yet confirmed live which internal state lags the DOM,
+          // so give the composer a settle window and re-verify the text
+          // is still there before allowing Send - a composer that reset
+          // itself in the meantime fails here instead of silently
+          // sending an image-only message.
+          const settleMs = 1000;
+
+          setTimeout(() => {
+
+            const current = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
+
+            if (
+              !current ||
+              normalizeForCompare(current.innerText) !== expectedForCompare
+            ) {
+              console.error("[ChatGPT] prompt text did not survive the settle window", {
+                actual: current ? current.innerText : null
+              });
+              done({
+                success: false,
+                step: "prompt-lost-after-paste",
+                reason: "composer no longer contained the prompt " + settleMs + "ms after paste",
+                timeline: { clearedAt, pastedAt, verificationStartedAt: verifyStartedAt, verifiedAt }
+              });
+              return;
+            }
+
+            done({
+              success: true,
+              step: "inserted",
+              timeline: { clearedAt, pastedAt, verificationStartedAt: verifyStartedAt, verifiedAt }
+            });
+
+          }, settleMs);
+
           return;
         }
 
@@ -269,8 +327,8 @@ ${buildInsertPromptTextSnippet(prompt)}
     // sign that ChatGPT actually accepted the message, and retry the
     // click (bounded) if none appears in time.
 
-    const composerSelector = "#prompt-textarea";
-    const sendButtonSelector = "#composer-submit-button";
+    const composerSelector = ${JSON.stringify(COMPOSER_SELECTOR)};
+    const sendButtonSelector = ${JSON.stringify(SEND_BUTTON_SELECTOR)};
     const userMessageSelector = '[data-message-author-role="user"]';
     const assistantMessageSelector = '[data-message-author-role="assistant"]';
 
@@ -368,6 +426,31 @@ ${buildInsertPromptTextSnippet(prompt)}
 
       const waitForButton = () => {
 
+        // ChatGPT UI update (2026-10): confirmed via a user-submitted
+        // Diagnostics zip that the previous attempt's click can be
+        // accepted AFTER its acceptWaitMs window closed - the composer
+        // then empties and ChatGPT swaps the send button for its voice
+        // button, so this retry reported "send button not found" for a
+        // message that had actually been sent. Re-check acceptance before
+        // every retry click instead of clicking (or failing) blindly.
+        if (attempt > 1) {
+
+          const lateAcceptedBy = checkAccepted();
+
+          if (lateAcceptedBy) {
+            acceptedAt = Date.now();
+            console.log("[ChatGPT] previous send attempt accepted late (" + lateAcceptedBy + ")");
+            resolve({
+              success: true,
+              step: "send-clicked",
+              acceptedBy: lateAcceptedBy,
+              timeline: { ...insertTimeline, sendButtonFoundAt, sendEnabledAt, sendClickedAt, acceptedAt }
+            });
+            return;
+          }
+
+        }
+
         const sendButton = document.querySelector(sendButtonSelector);
 
         if (sendButton && sendButtonFoundAt === null) {
@@ -395,7 +478,7 @@ ${buildInsertPromptTextSnippet(prompt)}
               : "send button not found";
 
             console.error(
-              "[ChatGPT] #composer-submit-button " +
+              "[ChatGPT] send button " +
               (sendButton ? "disabled" : "not found") +
               " (attempt " + attempt + ")"
             );
@@ -598,8 +681,8 @@ export function buildTxtPromptScript(prompt: string) {
 
     const expectedForCompare = normalizeForCompare(stripKnownMarkdownAutoformatLines(text));
 
-    const composerSelector = "#prompt-textarea";
-    const sendButtonSelector = "#composer-submit-button";
+    const composerSelector = ${JSON.stringify(COMPOSER_SELECTOR)};
+    const sendButtonSelector = ${JSON.stringify(SEND_BUTTON_SELECTOR)};
     const userMessageSelector = '[data-message-author-role="user"]';
     const assistantMessageSelector = '[data-message-author-role="assistant"]';
 
@@ -610,12 +693,12 @@ export function buildTxtPromptScript(prompt: string) {
     const editor = document.querySelector(composerSelector);
 
     if (!editor) {
-      console.error("[ChatGPT] #prompt-textarea not found");
+      console.error("[ChatGPT] composer element not found");
       resolve({ success: false, step: "textarea-not-found", reason: "prompt-textarea not found" });
       return;
     }
 
-    console.log("[ChatGPT] #prompt-textarea found");
+    console.log("[ChatGPT] composer element found");
 
     editor.focus();
 
@@ -710,6 +793,31 @@ export function buildTxtPromptScript(prompt: string) {
 
       const waitForButton = () => {
 
+        // ChatGPT UI update (2026-10): confirmed via a user-submitted
+        // Diagnostics zip that the previous attempt's click can be
+        // accepted AFTER its acceptWaitMs window closed - the composer
+        // then empties and ChatGPT swaps the send button for its voice
+        // button, so this retry reported "send button not found" for a
+        // message that had actually been sent. Re-check acceptance before
+        // every retry click instead of clicking (or failing) blindly.
+        if (attempt > 1) {
+
+          const lateAcceptedBy = checkAccepted();
+
+          if (lateAcceptedBy) {
+            acceptedAt = Date.now();
+            console.log("[ChatGPT] previous send attempt accepted late (" + lateAcceptedBy + ")");
+            resolve({
+              success: true,
+              step: "send-clicked",
+              acceptedBy: lateAcceptedBy,
+              timeline: { clearedAt, pastedAt, attachedAt, sendButtonFoundAt, sendEnabledAt, sendClickedAt, acceptedAt }
+            });
+            return;
+          }
+
+        }
+
         const sendButton = document.querySelector(sendButtonSelector);
 
         if (sendButton && sendButtonFoundAt === null) {
@@ -732,7 +840,7 @@ export function buildTxtPromptScript(prompt: string) {
               : "send button not found";
 
             console.error(
-              "[ChatGPT] #composer-submit-button " +
+              "[ChatGPT] send button " +
               (sendButton ? "disabled" : "not found") +
               " (TXT attempt " + attempt + ")"
             );
@@ -960,12 +1068,96 @@ const GENERATED_IMAGE_SELECTOR = 'img[src*="/backend-api/estuary/content"]';
 // inside an "imagegen-image" container (confirmed live, same as
 // buildOpenImageViewerScript's own comment below), so scoping to it here
 // too makes that false match structurally impossible.
+//
+// ChatGPT UI update (2026-10): confirmed via Export Diagnostics'
+// live_page_survey.json on a real finished generation that the
+// "imagegen-image" container and the backend-api URL are both gone
+// (count 0). A generated image is now
+//   div[data-testid="generated-image-gallery"]
+//     > ... > button[data-testid="generated-image-preview"]
+//       > img[alt="생성된 이미지 1"][src="blob:..."]
+// while the user's own uploaded photo sits in the user message
+// (alt="사용자 첨부 파일"), outside that gallery - so the testid scoping
+// keeps the same "never mistake the uploaded photo" guarantee.
+const NEW_GENERATED_IMAGE_SELECTOR =
+  '[data-testid="generated-image-preview"] img';
+
 const GENERATED_IMAGE_IN_CONTAINER_SELECTOR =
-  '[class*="imagegen-image"] img[src*="/backend-api/estuary/content"]';
+  '[class*="imagegen-image"] img[src*="/backend-api/estuary/content"], ' +
+  NEW_GENERATED_IMAGE_SELECTOR;
+
+// Shared by buildWaitImageScript's timeout report and
+// buildPageImageSurveyScript (Export Diagnostics) - describes an <img>
+// plus its ancestor chain, read-only.
+function buildImageSurveySnippet() {
+  return `
+  const describeAncestors = (el) => {
+    const chain = [];
+    let node = el.parentElement;
+    for (let i = 0; node && i < 8; i++, node = node.parentElement) {
+      const cls = typeof node.className === "string" ? node.className.slice(0, 120) : "";
+      chain.push(
+        node.tagName.toLowerCase() +
+        (node.id ? "#" + node.id : "") +
+        (node.getAttribute("data-testid") ? "[data-testid=" + node.getAttribute("data-testid") + "]" : "") +
+        (node.getAttribute("role") ? "[role=" + node.getAttribute("role") + "]" : "") +
+        (cls ? " ." + cls : "")
+      );
+    }
+    return chain;
+  };
+
+  const describeImage = (img) => ({
+    src: (img.getAttribute("src") || "").slice(0, 100),
+    alt: img.getAttribute("alt"),
+    className: typeof img.className === "string" ? img.className.slice(0, 160) : "",
+    natural: img.naturalWidth + "x" + img.naturalHeight,
+    rendered: img.clientWidth + "x" + img.clientHeight,
+    ancestors: describeAncestors(img)
+  });
+`;
+}
+
+/**
+ * Debug Mode only - run by Export Diagnostics against the current tab's
+ * webview at the moment of export, so a stuck run (e.g. a generated
+ * image the detection selector no longer matches) leaves evidence
+ * without waiting for any timeout. Read-only.
+ */
+export function buildPageImageSurveyScript() {
+  return `
+(() => {
+${buildImageSurveySnippet()}
+  const images = Array.from(document.querySelectorAll("img"));
+  return JSON.stringify({
+    url: location.href,
+    capturedAt: new Date().toISOString(),
+    imageCount: images.length,
+    imagegenContainerCount: document.querySelectorAll('[class*="imagegen-image"]').length,
+    estuaryImageCount: document.querySelectorAll('img[src*="/backend-api/estuary/content"]').length,
+    dialogOpen: !!document.querySelector('div[role="dialog"]'),
+    dialogControls: Array.from(document.querySelectorAll('div[role="dialog"] button, div[role="dialog"] a[href], div[role="dialog"] [role="button"]'))
+      .slice(0, 40)
+      .map((el) => ({
+        tag: el.tagName.toLowerCase(),
+        testId: el.getAttribute("data-testid"),
+        ariaLabel: el.getAttribute("aria-label"),
+        title: el.getAttribute("title"),
+        href: el.tagName === "A" ? (el.getAttribute("href") || "").slice(0, 80) : null,
+        download: el.getAttribute("download"),
+        iconHref: el.querySelector("svg use") ? el.querySelector("svg use").getAttribute("href") : null,
+        text: (el.textContent || "").trim().slice(0, 40)
+      })),
+    lastImages: images.slice(-10).map(describeImage)
+  }, null, 2);
+})();
+`;
+}
 
 export function buildWaitImageScript() {
   return `
 (() => {
+${buildImageSurveySnippet()}
 
   return new Promise((resolve) => {
 
@@ -973,12 +1165,79 @@ export function buildWaitImageScript() {
 
     const startCount = document.querySelectorAll(selector).length;
 
+    // ChatGPT UI update (2026-10): confirmed live (user screenshot + a
+    // Diagnostics zip) that a generated image can be fully rendered while
+    // this selector never matches, and this wait previously had NO
+    // timeout - Generate just hung forever with no evidence left behind.
+    // Now it gives up after timeoutMs and reports every <img> that
+    // appeared since it started (src prefix, alt, size, ancestor chain),
+    // so the next Diagnostics zip shows the new generated-image DOM
+    // instead of anyone guessing the replacement selector.
+    const timeoutMs = 180000;
+
+    const startedAt = Date.now();
+
+    const startImages = new Set(Array.from(document.querySelectorAll("img")));
+
+    const surveyNewImages = () =>
+      Array.from(document.querySelectorAll("img"))
+        .filter((img) => !startImages.has(img))
+        .slice(-6)
+        .map(describeImage);
+
+    // The new preview <img> can exist while ChatGPT is still rendering
+    // the image (progressive preview), so a new match alone isn't "done":
+    // the newest one must be fully loaded with a stable src, ChatGPT must
+    // not be showing its stop/generating control, and all of that must
+    // hold for settleMs.
+    const settleMs = 2000;
+
+    let settledSince = null;
+
+    let lastSrc = null;
+
+    const isGenerating = () =>
+      !!document.querySelector(
+        '[data-testid="stop-button"], button[aria-label*="중지"], button[aria-label*="Stop"]'
+      );
+
     const check = () => {
 
       const images = Array.from(document.querySelectorAll(selector));
 
-      if (images.length > startCount) {
+      const newest = images[images.length - 1];
+
+      const newestSrc = newest ? newest.getAttribute("src") : null;
+
+      const readyNow =
+        images.length > startCount &&
+        !!newest &&
+        newest.complete &&
+        newest.naturalWidth > 0 &&
+        newestSrc === lastSrc &&
+        !isGenerating();
+
+      lastSrc = newestSrc;
+
+      if (!readyNow) {
+        settledSince = null;
+      }
+      else if (settledSince === null) {
+        settledSince = Date.now();
+      }
+
+      if (settledSince !== null && Date.now() - settledSince >= settleMs) {
         resolve({ success: true });
+        return;
+      }
+
+      if (Date.now() - startedAt > timeoutMs) {
+        resolve({
+          success: false,
+          reason: "generated image not detected within " + (timeoutMs / 1000) + "s",
+          imagegenContainerCount: document.querySelectorAll('[class*="imagegen-image"]').length,
+          newImages: surveyNewImages()
+        });
         return;
       }
 
@@ -1020,8 +1279,107 @@ export function buildOpenImageViewerScript() {
 
   const lastContainer = containers[containers.length - 1];
 
+  // ChatGPT UI update (2026-10) - see NEW_GENERATED_IMAGE_SELECTOR: no
+  // "imagegen-image" container any more; the newest generated image is
+  // the last generated-image-preview button, which is itself the
+  // clickable control.
   if (!lastContainer) {
-    return { success: false, reason: "no generated-image container found" };
+
+    const previews = document.querySelectorAll('[data-testid="generated-image-preview"]');
+
+    const lastPreview = previews[previews.length - 1];
+
+    const previewImage = lastPreview ? lastPreview.querySelector("img") : null;
+
+    if (!lastPreview || !previewImage) {
+      return { success: false, reason: "no generated-image container or preview found" };
+    }
+
+    // Confirmed live (two Diagnostics runs): the same .click() opened the
+    // viewer within 1s once, and another time nothing opened for 15s. So
+    // don't trust a single click - after each attempt, wait briefly for
+    // the viewer (div[role="dialog"]) and escalate to the next way of
+    // clicking only if it hasn't opened. Still only ever targets the
+    // newest generated-image preview, never the uploaded photo.
+    const pointerClick = (el) => {
+      const rect = el.getBoundingClientRect();
+      const init = {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+        button: 0,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true
+      };
+      el.dispatchEvent(new PointerEvent("pointerdown", init));
+      el.dispatchEvent(new MouseEvent("mousedown", init));
+      el.dispatchEvent(new PointerEvent("pointerup", init));
+      el.dispatchEvent(new MouseEvent("mouseup", init));
+      el.dispatchEvent(new MouseEvent("click", init));
+    };
+
+    const attempts = [
+      ["preview-button-click", () => lastPreview.click()],
+      ["preview-image-click", () => previewImage.click()],
+      ["preview-pointer-sequence", () => {
+        lastPreview.scrollIntoView({ block: "center" });
+        pointerClick(previewImage);
+      }]
+    ];
+
+    const attemptWaitMs = 2500;
+
+    return new Promise((resolve) => {
+
+      let index = 0;
+
+      const runAttempt = () => {
+
+        if (document.querySelector('div[role="dialog"]')) {
+          resolve({ success: true, matchedBy: index === 0 ? "already-open" : attempts[index - 1][0] });
+          return;
+        }
+
+        if (index >= attempts.length) {
+          // Leave the final verdict to buildWaitImageViewerScript, which
+          // the caller runs next - this just reports what was tried.
+          resolve({ success: true, matchedBy: "all-attempts-dispatched" });
+          return;
+        }
+
+        const [name, act] = attempts[index];
+
+        index++;
+
+        console.log("[ChatGPT] opening image viewer via " + name);
+
+        act();
+
+        const startedAt = Date.now();
+
+        const poll = () => {
+          if (document.querySelector('div[role="dialog"]')) {
+            resolve({ success: true, matchedBy: name });
+            return;
+          }
+          if (Date.now() - startedAt > attemptWaitMs) {
+            runAttempt();
+            return;
+          }
+          setTimeout(poll, 100);
+        };
+
+        poll();
+
+      };
+
+      runAttempt();
+
+    });
+
   }
 
   const image = lastContainer.querySelector(selector);
@@ -1044,12 +1402,23 @@ export function buildWaitImageViewerScript() {
 
   return new Promise((resolve) => {
 
+    // ChatGPT UI update (2026-10): previously unbounded - if the viewer
+    // never opens, fail with a reason instead of hanging Generate forever.
+    const timeoutMs = 15000;
+
+    const startedAt = Date.now();
+
     const check = () => {
 
       const dialog = document.querySelector('div[role="dialog"]');
 
       if (dialog) {
         resolve({ success: true });
+        return;
+      }
+
+      if (Date.now() - startedAt > timeoutMs) {
+        resolve({ success: false, reason: "image viewer dialog did not open within " + (timeoutMs / 1000) + "s" });
         return;
       }
 
@@ -1077,9 +1446,12 @@ export function buildClickDownloadButtonScript() {
     // 순으로 후보를 찾는다.
 
     const DATA_TESTID_CANDIDATES = ["download", "save"];
-    const ARIA_LABEL_CANDIDATES = ["저장", "download"];
+    // ChatGPT UI update (2026-10): the new image viewer's control is an
+    // icon-only download button (confirmed via screenshot_at_export.png),
+    // whose Korean label is "다운로드", not "저장".
+    const ARIA_LABEL_CANDIDATES = ["저장", "다운로드", "download"];
     const ICON_HREF_CANDIDATES = ["1a3695"];
-    const TEXT_CANDIDATES = ["저장", "download"];
+    const TEXT_CANDIDATES = ["저장", "다운로드", "download"];
 
     const dialog = document.querySelector('div[role="dialog"]') || document;
 
@@ -1151,9 +1523,44 @@ export function buildClickDownloadButtonScript() {
       matchedBy = downloadButton ? "text" : null;
     }
 
+    // 6. ChatGPT UI update (2026-10): the new viewer is a full-page
+    // "ImageViewer" panel whose top bar (zoom / download / share / close)
+    // need not sit inside div[role="dialog"] - so if nothing matched in
+    // that scope, search the whole page, but ONLY by an exact
+    // data-testid/aria-label match (never the looser icon/text
+    // fallbacks), so an unrelated page control can't be clicked.
+    if (!downloadButton && dialog !== document) {
+      const pageMatch = Array.from(
+        document.querySelectorAll('button, a[href], [role="button"]')
+      ).find(el => {
+        const testId = (el.getAttribute("data-testid") || "").toLowerCase();
+        const ariaLabel = (el.getAttribute("aria-label") || "").trim().toLowerCase();
+        return (
+          DATA_TESTID_CANDIDATES.some(k => testId.includes(k)) ||
+          ["다운로드", "download", "이미지 다운로드", "download image"].includes(ariaLabel)
+        );
+      });
+      downloadButton = pageMatch;
+      matchedBy = downloadButton ? "page-exact-label" : null;
+    }
+
     if (!downloadButton) {
       console.error("[ChatGPT] download button not found");
-      resolve({ success: false, reason: "download button not found" });
+      // ChatGPT UI update (2026-10): return what WAS there, so the
+      // Diagnostics zip shows the new viewer's controls instead of only
+      // the browser console having them.
+      resolve({
+        success: false,
+        reason: "download button not found",
+        dialogFound: dialog !== document,
+        candidates: candidates.slice(0, 40).map(c => ({
+          testId: c.testId,
+          ariaLabel: c.ariaLabel,
+          role: c.role,
+          iconHref: c.iconHref,
+          text: c.text.slice(0, 40)
+        }))
+      });
       return;
     }
 
@@ -1339,7 +1746,7 @@ export function buildCloseImageViewerScript() {
 
       }
 
-      const editor = document.querySelector("#prompt-textarea");
+      const editor = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
 
       if (!editor) {
         finish({ success: false, reason: "prompt textarea not found after closing viewer" });
@@ -1386,7 +1793,7 @@ export function buildCloseImageViewerScript() {
 function buildDomSnapshotSnippet() {
   return `
   const domSnapshot = () => {
-    const editor = document.querySelector("#prompt-textarea");
+    const editor = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
     const composerForm = editor ? (editor.closest("form") || editor.parentElement) : null;
     return {
       hasComposer: !!editor,
@@ -1419,7 +1826,7 @@ ${buildDomSnapshotSnippet()}
 
       console.log("[ChatGPT] [Step 3/10] Locating upload control (file input)");
 
-      const editor = document.querySelector("#prompt-textarea");
+      const editor = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
 
       const composerForm = editor ? (editor.closest("form") || editor.parentElement) : null;
 
@@ -1557,13 +1964,13 @@ export function buildWaitUploadScript(expectedCount = 1) {
 ${buildDomSnapshotSnippet()}
   return new Promise((resolve) => {
 
-    const timeoutMs = 20000;
+    const timeoutMs = 60000;
     const pollMs = 200;
     const startedAt = Date.now();
     const expectedCount = ${JSON.stringify(expectedCount)};
 
     const scope = () => {
-      const editor = document.querySelector("#prompt-textarea");
+      const editor = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
       return editor ? (editor.closest("form") || editor.parentElement) : document;
     };
 
@@ -1584,7 +1991,56 @@ ${buildDomSnapshotSnippet()}
     // thumbnail" - a single-image Generate always passes expectedCount=1,
     // which is exactly the old querySelector-truthy check below, so that
     // path is unchanged.
-    const uploadedThumbSelector = 'img[src*="/backend-api/estuary/content"]';
+    //
+    // ChatGPT UI update (2026-10): confirmed via a user-submitted
+    // Diagnostics zip that the composer thumbnail is now an
+    // <img src="data:image/..."> inside a [data-composer-attachments]
+    // container - no backend-api URL at all, so the old selector alone
+    // never matched and Step 5 always timed out. Both forms are accepted.
+    //
+    // A second Diagnostics zip then showed the new thumbnail appears
+    // while the file is STILL uploading (screenshot: grey tile with a
+    // spinner) and the send button stays enabled the whole time - so
+    // neither "thumbnail exists" nor "send enabled" means done, and
+    // sending at that moment delivered the image WITHOUT the prompt text.
+    // In the new UI, each attachment tile is therefore only considered
+    // done once it holds an <img> and no loading indicator (any svg
+    // outside its remove button, animate-spin, role=progressbar,
+    // aria-busy=true - the confirmed finished tile contains only the
+    // <img>, an aria-hidden ring span, and the remove button), and that
+    // has held steadily for settleMs. Every distinct tile markup seen
+    // while waiting is recorded in attachmentStates (data: URLs
+    // stripped) so the next Diagnostics shows the real in-progress DOM.
+    const uploadedThumbSelector =
+      'img[src*="/backend-api/estuary/content"], [data-composer-attachments] img';
+
+    const attachmentTileSelector = '[data-composer-attachments] [role="button"]';
+
+    const settleMs = 1000;
+
+    let settledSince = null;
+
+    const attachmentStates = [];
+
+    const tileHtml = (tile) =>
+      tile.outerHTML
+        .replace(/src="data:[^"]*"/g, 'src="data:..."')
+        .replace(/ class="[^"]*"/g, "")
+        .slice(0, 1500);
+
+    const tileIsBusy = (tile) => {
+
+      if (!tile.querySelector("img")) {
+        return true;
+      }
+
+      const indicator = Array.from(
+        tile.querySelectorAll('svg, [class*="animate-spin"], [role="progressbar"], [aria-busy="true"]')
+      ).find((el) => !el.closest("button"));
+
+      return !!indicator;
+
+    };
 
     console.log("[ChatGPT] [Step 5/10] Waiting for upload preview thumbnail", {
       selector: uploadedThumbSelector + " (within composer form/parent)",
@@ -1595,7 +2051,29 @@ ${buildDomSnapshotSnippet()}
 
       const thumbs = scope().querySelectorAll(uploadedThumbSelector);
 
-      if (thumbs.length >= expectedCount) {
+      const tiles = Array.from(scope().querySelectorAll(attachmentTileSelector));
+
+      tiles.forEach((tile) => {
+        const html = tileHtml(tile);
+        if (attachmentStates.length < 8 && !attachmentStates.includes(html)) {
+          attachmentStates.push(html);
+        }
+      });
+
+      // Old UI (no attachment tiles): backend-api thumbnail alone means
+      // done, exactly as before.
+      const settledNow =
+        thumbs.length >= expectedCount &&
+        (tiles.length === 0 || (tiles.length >= expectedCount && !tiles.some(tileIsBusy)));
+
+      if (!settledNow) {
+        settledSince = null;
+      }
+      else if (settledSince === null) {
+        settledSince = Date.now();
+      }
+
+      if (settledSince !== null && Date.now() - settledSince >= settleMs) {
 
         console.log("[ChatGPT] [Step 5/10] OK - upload preview detected", {
           count: thumbs.length,
@@ -1604,7 +2082,7 @@ ${buildDomSnapshotSnippet()}
 
         console.log("[ChatGPT] [Step 6/10] OK - upload completed");
 
-        resolve({ success: true, step: 6, stepName: "upload-completed" });
+        resolve({ success: true, step: 6, stepName: "upload-completed", attachmentStates });
 
         return;
 
@@ -1625,7 +2103,8 @@ ${buildDomSnapshotSnippet()}
           stepName: "upload-preview-detected",
           selector: uploadedThumbSelector + " (within composer form/parent)",
           domSnapshot: snapshot,
-          reason: "upload thumbnail not detected within timeout"
+          attachmentStates,
+          reason: "upload thumbnail not detected (or still loading) within timeout"
         });
 
         return;
@@ -1737,7 +2216,7 @@ export function buildEnsureNormalChatInterfaceScript() {
 
       }
 
-      const editor = document.querySelector("#prompt-textarea");
+      const editor = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
 
       if (!editor) {
         console.error("[ChatGPT] [Step 6.5/10] FAILED - composer not found after closing preview");
@@ -1779,7 +2258,7 @@ export function buildClearComposerScript() {
 
   return new Promise((resolve) => {
 
-    const editor = document.querySelector("#prompt-textarea");
+    const editor = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
 
     if (!editor) {
       resolve({ success: false, reason: "prompt-textarea not found" });
@@ -1843,7 +2322,7 @@ export function buildWaitComposerReadyScript() {
 
     const check = () => {
 
-      if (document.querySelector("#prompt-textarea")) {
+      if (document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)})) {
         resolve({ success: true });
         return;
       }
@@ -1898,7 +2377,7 @@ export function buildAttachDomObserverScript() {
       window.__gptImageStudioDomObserver = null;
     }
 
-    const editor = document.querySelector("#prompt-textarea");
+    const editor = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
 
     if (!editor) {
       return { success: false, reason: "prompt-textarea not found" };
@@ -1931,7 +2410,7 @@ export function buildAttachDomObserverScript() {
 
         if (
           target &&
-          target.id === "composer-submit-button" &&
+          target.matches && target.matches(${JSON.stringify(SEND_BUTTON_SELECTOR)}) &&
           m.type === "attributes"
         ) {
 
@@ -2002,6 +2481,22 @@ export function buildAttachDomObserverScript() {
  * Debug Mode only - used by the error-capture path (generate.ts) to
  * attach the composer's own HTML/text to a failure's forensic snapshot.
  * Read-only, same as everything else in this section.
+ *
+ * ChatGPT UI update (2026-10): a real "composer-not-ready" failure
+ * (#prompt-textarea missing after buildWaitComposerReadyScript's own
+ * 15s timeout) previously produced an EMPTY composer.html/composer.txt
+ * here too - this function's only fallback for "editor not found" was
+ * `{composerHtml: null, composerText: null}`, so a selector actually
+ * going stale left zero DOM evidence to diagnose it from (confirmed
+ * live via a user-submitted Diagnostics zip: error.log showed
+ * stage=composer-not-ready, but composer.html/composer.txt were both
+ * 0 bytes). When the known selector is missing, this now surveys the
+ * page for plausible composer candidates instead of giving up - every
+ * contenteditable element, every textarea, and the page's own visible
+ * placeholder/input text (ChatGPT always renders SOME kind of message
+ * input, even when its internal id/class names changed) - so the next
+ * captured snapshot actually contains the new DOM to read the
+ * replacement selector off of.
  */
 export function buildCaptureComposerSnapshotScript() {
   return `
@@ -2009,17 +2504,104 @@ export function buildCaptureComposerSnapshotScript() {
 
   try {
 
-    const editor = document.querySelector("#prompt-textarea");
+    const editor = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
 
-    if (!editor) {
-      return { composerHtml: null, composerText: null };
+    if (editor) {
+
+      const form = editor.closest("form") || editor.parentElement;
+
+      return {
+        composerHtml: form ? form.outerHTML : editor.outerHTML,
+        composerText: editor.innerText,
+      };
+
     }
 
-    const form = editor.closest("form") || editor.parentElement;
+    // Fallback survey - #prompt-textarea not found. Never assumes
+    // which of these candidates is the real composer; just reports
+    // everything plausible so a human (or a later code fix) can tell.
+    const describe = (el, label) => {
+
+      let outer = "";
+
+      try {
+        outer = el.outerHTML || "";
+      }
+      catch {
+        outer = "(outerHTML read failed)";
+      }
+
+      return (
+        "----- " + label + " -----\\n" +
+        "tag=" + el.tagName +
+        " id=" + JSON.stringify(el.id || null) +
+        " class=" + JSON.stringify(el.className || null) +
+        " data-testid=" + JSON.stringify(el.getAttribute("data-testid")) +
+        " contenteditable=" + JSON.stringify(el.getAttribute("contenteditable")) +
+        "\\n" + outer.slice(0, 2000) +
+        (outer.length > 2000 ? "\\n...(" + (outer.length - 2000) + " more chars truncated)" : "") +
+        "\\n"
+      );
+
+    };
+
+    const sections = [];
+
+    sections.push(
+      "url=" + location.href +
+      " title=" + JSON.stringify(document.title) +
+      " bodyLength=" + document.body.innerHTML.length
+    );
+
+    const contentEditables = Array.from(
+      document.querySelectorAll('[contenteditable="true"]')
+    );
+
+    sections.push(
+      "contenteditable[contenteditable=true] count=" + contentEditables.length
+    );
+
+    contentEditables.slice(0, 5).forEach((el, i) => {
+      sections.push(describe(el, "contenteditable #" + i));
+    });
+
+    const textareas = Array.from(document.querySelectorAll("textarea"));
+
+    sections.push("textarea count=" + textareas.length);
+
+    textareas.slice(0, 5).forEach((el, i) => {
+      sections.push(describe(el, "textarea #" + i));
+    });
+
+    // The composer's own placeholder/input row is always visible to the
+    // user even when the underlying selector changed (confirmed live -
+    // see the submitted screenshot showing "ChatGPT에게 물어보세요"/
+    // "Message ChatGPT") - find it by that visible text as a last
+    // resort, independent of any id/class ChatGPT may have renamed.
+    const placeholderMatches = Array.from(document.querySelectorAll("*")).filter(el => {
+      const text = (el.textContent || "").trim();
+      return (
+        el.children.length === 0 &&
+        text.length > 0 &&
+        text.length < 60 &&
+        (
+          text.includes("물어보세요") ||
+          text.toLowerCase().includes("message chatgpt") ||
+          text.toLowerCase().includes("ask anything")
+        )
+      );
+    });
+
+    sections.push("placeholder-text matches count=" + placeholderMatches.length);
+
+    placeholderMatches.slice(0, 3).forEach((el, i) => {
+      const container = el.closest("form") || el.parentElement?.parentElement || el.parentElement || el;
+      sections.push(describe(container, "placeholder-match container #" + i));
+    });
 
     return {
-      composerHtml: form ? form.outerHTML : editor.outerHTML,
-      composerText: editor.innerText,
+      composerHtml: sections.join("\\n"),
+      composerText: "#prompt-textarea NOT FOUND - see composer.html for a DOM survey",
     };
 
   }

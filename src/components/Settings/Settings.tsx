@@ -6,7 +6,9 @@
 // section here directly serves the workflow (where images save to,
 // backing up/restoring the Prompt Library, per-job Work Type presets,
 // the filename rule, and read-only build info/credits). Nothing else
-// belongs here - no theme/language/notification/cache preferences.
+// belongs here - no theme/language/cache preferences. The one
+// notification toggle (v1.5.1) exists because the "image saved" toast
+// is itself part of the workflow.
 // ============================================================================
 
 import { useEffect, useState } from "react";
@@ -144,6 +146,8 @@ export default function Settings({
 
     const [debugLogsPath, setDebugLogsPath] = useState<string | null>(null);
 
+    const [notificationsEnabled, setNotificationsEnabledState] = useState(true);
+
     useEffect(() => {
 
         window.ipcRenderer.settings.getDownloadFolder().then(setDownloadFolder);
@@ -155,6 +159,8 @@ export default function Settings({
         window.ipcRenderer.settings.getDebugMode().then(setDebugModeState);
 
         window.ipcRenderer.settings.getDebugLogsPath().then(setDebugLogsPath);
+
+        window.ipcRenderer.settings.getNotificationsEnabled().then(setNotificationsEnabledState);
 
     }, []);
 
@@ -168,6 +174,16 @@ export default function Settings({
         window.ipcRenderer.settings.setDebugMode(value);
 
         initDebugLogger(value);
+
+    };
+
+    // Persisted in main.ts, which reads it on every save - takes effect
+    // for the very next saved image, no restart needed.
+    const handleNotificationsChange = (value: boolean) => {
+
+        setNotificationsEnabledState(value);
+
+        window.ipcRenderer.settings.setNotificationsEnabled(value);
 
     };
 
@@ -468,7 +484,7 @@ export default function Settings({
                         </div>
 
                         <p className="settings-note">
-                            This will remove all saved Prompt Library items
+                            This will remove all saved Prompt Settings items
                             and all Work Types. Application settings and
                             download folder will remain unchanged.
                         </p>
@@ -501,7 +517,7 @@ export default function Settings({
                         <p className="settings-note">
                             {pendingImport.duplicateCount} of{" "}
                             {pendingImport.prompts.length + (pendingImport.workTypes?.length ?? 0)}{" "}
-                            item(s) in this file (Prompt Library and/or Work
+                            item(s) in this file (Prompt Settings and/or Work
                             Type List) share a name with one already saved.
                             Choose how to handle them:
                         </p>
@@ -575,9 +591,9 @@ export default function Settings({
                             </div>
 
                             <p className="settings-note">
-                                Backs up your Prompt Library and Work Type
+                                Backs up your Prompt Settings and Work Type
                                 List together into one file. Restoring an
-                                older Prompt-Library-only backup still works.
+                                older prompts-only backup still works.
                             </p>
 
                             <div className="settings-button-row">
@@ -789,6 +805,42 @@ export default function Settings({
                                 added automatically:{" "}
                                 {sanitizeForPreview(filenamePrefix)}만삭Portrait2.png,{" "}
                                 {sanitizeForPreview(filenamePrefix)}만삭Portrait3.png.
+                            </p>
+
+                        </div>
+
+                        {/* -------------------------------------------------
+                            Notifications (v1.5.1)
+                        -------------------------------------------------- */}
+
+                        <div className="settings-section">
+
+                            <div className="settings-section-title">
+                                Notifications
+                            </div>
+
+                            <label className="settings-worktype-row">
+
+                                <input
+
+                                    type="checkbox"
+
+                                    checked={notificationsEnabled}
+
+                                    onChange={e => handleNotificationsChange(e.target.checked)}
+
+                                />
+
+                                <span>
+                                    이미지 저장 완료 시 Windows 알림 표시
+                                </span>
+
+                            </label>
+
+                            <p className="settings-note">
+                                각 탭에서 이미지가 저장되면 화면 오른쪽 아래에
+                                해당 탭 이름으로 알림이 표시됩니다. 알림을
+                                클릭하면 그 탭으로 이동합니다.
                             </p>
 
                         </div>
