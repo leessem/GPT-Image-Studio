@@ -4341,3 +4341,48 @@ screenshot `K-003.png`:
 - A temporary CDP `remote-debugging-port` inspection was attempted once
   and blocked by the permission policy; nothing was added to main.ts.
 - Released as v1.5.1.
+
+## Session 37 (2026-10-24): previous tab's prompt leaks into a new tab
+
+- **Symptom (user report):** after Generate on tab A, quickly opening a
+  new tab B showed A's prompt already typed into B's ChatGPT composer,
+  with no prompt selected on B.
+- **Cause:** every Workspace webview shares one partition, and ChatGPT
+  persists the unsent composer draft there. A's prompt is a draft from
+  the paste until Send is accepted (>= the 1s settle window), so a new
+  webview loading in that window restores it. The existing
+  `buildClearComposerScript` only covered the failed-send path.
+- **Fix:** new `buildDiscardRestoredDraftScript` (ChatGPT.ts), injected
+  by Browser.tsx on every webview `dom-ready` (first load, restored
+  conversation, Clear). For 10s it empties any text that appears in
+  the composer, disarming permanently on the first paste (the app's
+  own prompt insertion) or real keyboard/IME/drop input, so it never
+  wipes this tab's own prompt or the user's typing.
+- tsc/eslint clean. Awaiting live user test.
+
+### Follow-up: tab 2 error during the live test (same day)
+
+- tab 2 ("미니미" prompt) failed `prompt-verification-failed`. Its
+  DebugLogs session shows composer_readback == original_prompt exactly
+  - the paste was correct. The prompt has "---" lines: verification
+  strips them from the expected text (Session 29: ChatGPT used to turn
+  them into <hr>), but this time ChatGPT kept them as literal text, so
+  the comparison failed. Unrelated to the new-tab draft fix.
+- Fix: `stripKnownMarkdownAutoformatLines` is now applied to the
+  composer readback as well (normal path, settle re-check, TXT Path B),
+  so verification passes with or without ChatGPT's autoformat.
+  Replaying the captured data: old compare false, new compare true.
+- Noted, not changed: ChatGPT's post-send placeholder URL is now
+  `/c/local-chatgpt:...`; `waitForConversationUrl` only skips
+  `/c/WEB:`, so that placeholder gets saved as conversationUrl.
+
+### Follow-up 2: placeholder conversation URL + v1.5.2 prep (same day)
+
+- `waitForConversationUrl` now treats any colon (raw or `%3A`) in the
+  `/c/` id as a placeholder - real ids in every captured log are bare
+  UUIDs; placeholders seen are `WEB:` and `local-chatgpt%3A`. Regex
+  checked against both placeholder forms, a real UUID URL, and the
+  home URL.
+- package.json -> 1.5.2; CHANGELOG / ROADMAP entries added.
+- tsc/eslint clean. Released as v1.5.2 at the user's request without
+  a further live test of the "---" and placeholder-URL fixes.

@@ -71,6 +71,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
  * before the server assigns the real permanent id - that placeholder must
  * be skipped, or the saved conversationUrl ends up unusable (confirmed
  * live: navigating back to a "/c/WEB:..." URL just redirects home).
+ *
+ * The placeholder's prefix has since changed - confirmed live
+ * (2026-10-24 WS-AUDIT log) as "/c/local-chatgpt%3A<uuid>", which the
+ * old "/c/WEB:" check let through, so two tabs even ended up saving the
+ * same placeholder as their conversationUrl. Both forms are "<prefix>:
+ * <id>" (raw or %3A-encoded), while every real captured conversation id
+ * is a bare UUID with no colon - so any colon in the id marks a
+ * placeholder, whatever ChatGPT names the prefix next.
  */
 async function waitForConversationUrl(
     browser: BrowserHandle,
@@ -84,7 +92,7 @@ async function waitForConversationUrl(
 
         const url = browser.getCurrentUrl();
 
-        if (/\/c\/WEB:/.test(url)) {
+        if (/\/c\/[^/?#]*(:|%3A)/i.test(url)) {
 
             console.log(
                 "[Generate] waitForConversationUrl: skipping client-side placeholder URL",

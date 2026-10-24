@@ -212,11 +212,20 @@ function buildInsertPromptTextSnippet(prompt: string) {
         stripKnownMarkdownAutoformatLines(text)
       );
 
+      // The same strip is applied to the composer's readback too, so
+      // verification passes whether or not ChatGPT autoformatted those
+      // lines this time - confirmed live (2026-10-24 DebugLogs): a
+      // prompt containing "---" lines read back with every "---" still
+      // present as literal text, which failed against the stripped
+      // expectation alone even though the paste was exactly right.
+      const actualForCompare = (value) =>
+        normalizeForCompare(stripKnownMarkdownAutoformatLines(value));
+
       const waitForVerified = () => {
 
         if (
           editor.innerText.trim() !== "" &&
-          normalizeForCompare(editor.innerText) === expectedForCompare
+          actualForCompare(editor.innerText) === expectedForCompare
         ) {
           verifiedAt = Date.now();
           console.log(
@@ -241,7 +250,7 @@ function buildInsertPromptTextSnippet(prompt: string) {
 
             if (
               !current ||
-              normalizeForCompare(current.innerText) !== expectedForCompare
+              actualForCompare(current.innerText) !== expectedForCompare
             ) {
               console.error("[ChatGPT] prompt text did not survive the settle window", {
                 actual: current ? current.innerText : null
@@ -1016,7 +1025,7 @@ export function buildTxtPromptScript(prompt: string) {
         // instead, same as the normal (non-TXT) path.
         if (
           editor.innerText.trim() !== "" &&
-          normalizeForCompare(editor.innerText) === expectedForCompare
+          normalizeForCompare(stripKnownMarkdownAutoformatLines(editor.innerText)) === expectedForCompare
         ) {
 
           attachedAt = Date.now();
@@ -2297,6 +2306,87 @@ export function buildClearComposerScript() {
     check();
 
   });
+
+})();
+`;
+}
+
+// ============================================================================
+// buildClearComposerScript above only covers a FAILED send. The same
+// shared-partition draft leak also happens on the SUCCESS path: Workspace
+// A's prompt sits in its composer (and so in ChatGPT's persisted draft)
+// from the paste until ChatGPT accepts the Send - at least the 1s settle
+// window in buildInsertPromptTextSnippet - and a new Workspace webview
+// loaded inside that window restores A's draft into its own composer,
+// with no prompt selected and no Generate clicked. Injected by
+// Browser.tsx on every page load of every Workspace webview, so a
+// freshly-loaded composer only ever contains what was typed or pasted
+// into THIS page: any text ChatGPT restores before then is discarded.
+//
+// Disarms itself permanently on the first paste of any kind (this
+// app's own prompt insertion, buildPromptScript/buildTxtPromptScript,
+// is a synthetic paste - it must never be wiped) or on the user's own
+// real keyboard/drop input, and after a bounded window either way.
+// Fire-and-forget - never awaited by anything, never blocks ensure().
+// ============================================================================
+
+export function buildDiscardRestoredDraftScript() {
+  return `
+(() => {
+
+  if (window.__gptImageStudioDraftGuard)
+    return;
+
+  window.__gptImageStudioDraftGuard = true;
+
+  const guardMs = 10000;
+  const pollMs = 100;
+  const startedAt = Date.now();
+
+  let disarmed = false;
+
+  const disarm = () => {
+    disarmed = true;
+  };
+
+  document.addEventListener("paste", disarm, true);
+  document.addEventListener("drop", disarm, true);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.isTrusted)
+      disarm();
+  }, true);
+
+  document.addEventListener("compositionstart", (event) => {
+    if (event.isTrusted)
+      disarm();
+  }, true);
+
+  const check = () => {
+
+    if (disarmed || Date.now() - startedAt > guardMs)
+      return;
+
+    const editor = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
+
+    if (editor && editor.innerText.trim() !== "") {
+
+      console.warn("[ChatGPT] discarding composer draft restored from shared storage", {
+        restoredText: editor.innerText
+      });
+
+      editor.focus();
+
+      document.execCommand("selectAll", false, undefined);
+      document.execCommand("insertText", false, "");
+
+    }
+
+    setTimeout(check, pollMs);
+
+  };
+
+  check();
 
 })();
 `;

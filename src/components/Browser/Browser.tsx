@@ -19,6 +19,7 @@ import {
 } from "react";
 import "./Browser.css";
 import { logDomEvent } from "../../utils/debugLogger";
+import { buildDiscardRestoredDraftScript } from "./ChatGPT";
 
 export const CHATGPT_HOME_URL = "https://chatgpt.com/";
 
@@ -190,6 +191,22 @@ const BrowserPool = forwardRef<BrowserPoolHandle, BrowserPoolProps>(
             return;
 
           logDomEvent(workspaceId, event.message);
+
+        });
+
+        // Every page load (first load, restored conversationUrl, Clear's
+        // loadURL(CHATGPT_HOME_URL)) - not just the first - so another
+        // Workspace's in-flight prompt, persisted by ChatGPT as a draft
+        // in this shared partition, can never be restored into this
+        // Workspace's composer (see buildDiscardRestoredDraftScript).
+        el.addEventListener("dom-ready", () => {
+
+          el.executeJavaScript(buildDiscardRestoredDraftScript()).catch(err => {
+            console.error(
+              `[BrowserPool] draft guard injection failed for workspace ${workspaceId}`,
+              err
+            );
+          });
 
         });
 

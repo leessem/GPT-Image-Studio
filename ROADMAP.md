@@ -1,5 +1,18 @@
 # ROADMAP
 
+## Version 1.5.2 - RELEASED (2026-10-24)
+
+Bug-fix release from live multi-tab testing; each cause read off a
+real WS-AUDIT log / DebugLogs capture.
+
+- Shared-partition draft leak on the success path:
+  `buildDiscardRestoredDraftScript` (ChatGPT.ts), injected by
+  Browser.tsx on every webview `dom-ready`.
+- Prompt verification tolerates ChatGPT keeping "---" / list-marker
+  lines as literal text (strip applied to the readback too).
+- `waitForConversationUrl` skips any `/c/<prefix>:<id>` placeholder
+  (now `local-chatgpt%3A...`), not just `/c/WEB:`.
+
 ## Version 1.5.1 - RELEASED (2026-10-04)
 
 ChatGPT 2026-10 UI update compatibility, plus three user-requested

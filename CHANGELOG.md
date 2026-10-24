@@ -2,6 +2,24 @@
 
 All notable changes to GPT Image Studio are documented in this file.
 
+## Version 1.5.2 (2026-10-24)
+
+**Fixed a tab's prompt leaking into a newly opened tab, and prompts
+with "---" lines failing to send.**
+
+- Opening a new tab right after clicking Generate on another tab no
+  longer fills the new tab's ChatGPT message box with the other tab's
+  prompt. Any text ChatGPT restores on its own when a tab's page loads
+  is now cleared; the tab's own prompt and anything typed by hand are
+  never touched.
+- Prompts containing "---" separator lines no longer fail with
+  `prompt-verification-failed` when ChatGPT keeps those lines as plain
+  text instead of turning them into dividers (confirmed from a real
+  DebugLogs capture - the prompt itself was pasted correctly).
+- A tab no longer saves ChatGPT's temporary "/c/local-chatgpt:..."
+  address as its conversation; only the real conversation address is
+  kept.
+
 ## Version 1.5.1 (2026-10-04)
 
 **Fixed automation after ChatGPT's 2026-10 UI update, and added
