@@ -4386,3 +4386,59 @@ screenshot `K-003.png`:
 - package.json -> 1.5.2; CHANGELOG / ROADMAP entries added.
 - tsc/eslint clean. Released as v1.5.2 at the user's request without
   a further live test of the "---" and placeholder-URL fixes.
+
+## Session 38 (2026-11-27): TXT mode fails on very long prompts
+
+- **Symptom (user report):** a very long Prompt (44,763 chars) with
+  "TXT 첨부 방식" on failed `txt-attachment-not-detected`.
+- **Cause (from the user's Diagnostics zip, composer.html):** the paste
+  worked - ChatGPT made the text attachment and enabled Send 3s later.
+  But ChatGPT's UI changed: the pasted-text tile is no longer
+  `[role="group"][aria-label]`. It is now a
+  `<button aria-label="(Important) When GPT ... generate an…">` inside
+  `[data-composer-attachments]`, and the preview ends in "…" (U+2026)
+  instead of "..". The tile count never went up, so detection timed
+  out after 20s.
+- **Fix (`buildTxtPromptScript`):** `fileTileSelector` now matches both
+  the old shape and any labelled element inside
+  `[data-composer-attachments]`. Elements already there before the
+  paste are skipped, and a new element only counts when its label
+  (with ".." or "…" removed, whitespace collapsed) is the start of the
+  prompt. An empty label is still accepted only for the old
+  `[role="group"]` shape. This stops the image tile and the remove
+  buttons from counting as a match.
+- Checked: the generated script parses with the captured 44.7K prompt.
+  The real captured label matches; "붙여넣은 텍스트 첨부 제거", the image
+  tile label and an unrelated label do not. tsc/eslint clean. Awaiting
+  live user test.
+
+### Follow-up: send not detected after the tile fix (same day)
+
+- Second Diagnostics zip: the tile was detected and Send was clicked
+  (06:22:35). The message really was sent and the image generated
+  (screenshot_at_export). But the run failed `send-button-not-found
+  after 5 attempts`: no acceptance signal fired, so it kept retrying
+  against a composer that now only shows the voice button.
+- Cause (composer.html after send): the stop button is now
+  `<button type="button" aria-label="중지">`. `SEND_BUTTON_SELECTOR`
+  only finds `button[type="submit"]`, so the generating-state signal
+  never fired. The user/assistant message-count signals did not fire
+  either (`[data-message-author-role]` not seen; this capture cannot
+  show the message DOM). `[data-composer-attachments]` was empty after
+  the send.
+- Fix (`buildTxtPromptScript` only): new `stopButtonSelector`
+  (`[data-testid="stop-button"]` or a 중지/Stop button inside the
+  composer form) also counts as generating. New first acceptance
+  signal `attachment-tile-sent`: if Path A confirmed a tile, the send
+  counts as accepted once no tile matching the prompt is left. Tile
+  matching moved into a shared `tileMatchesPrompt`.
+- Not changed: `buildPromptScript` (normal mode) has the same
+  type="submit" stop-button gap, but its "textarea-empty" signal still
+  covers it.
+- tsc/eslint clean, script parses. Awaiting live user test.
+
+### Follow-up 2: v1.5.3 release (same day)
+
+- User live-tested the TXT-mode fixes with the same 44.7K-character
+  prompt: works. package.json -> 1.5.3; CHANGELOG / ROADMAP entries
+  added. Released as v1.5.3 at the user's request.

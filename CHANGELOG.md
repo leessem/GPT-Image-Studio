@@ -2,6 +2,23 @@
 
 All notable changes to GPT Image Studio are documented in this file.
 
+## Version 1.5.3 (2026-11-27)
+
+**Fixed "TXT 첨부 방식" prompts failing after ChatGPT's 2026-11 UI
+update.**
+
+- Very long prompts sent with "TXT 첨부 방식" no longer fail with
+  `txt-attachment-not-detected`. ChatGPT changed how a pasted-text
+  attachment looks in the message box, so the app could not see an
+  attachment that was really there. Both the old and the new look are
+  now recognised. Confirmed from a real Diagnostics capture of a
+  44,763-character prompt.
+- After the attachment was sent, the same prompts then failed with
+  `send-button-not-found` even though ChatGPT had received the message
+  and was drawing the image. The app now sees ChatGPT's new stop button
+  and the attachment leaving the message box, so it no longer retries a
+  message that was already sent.
+
 ## Version 1.5.2 (2026-10-24)
 
 **Fixed a tab's prompt leaking into a newly opened tab, and prompts

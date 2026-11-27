@@ -697,7 +697,43 @@ export function buildTxtPromptScript(prompt: string) {
 
     // Confirmed live via a real composer.html capture - see this
     // function's own doc comment above.
-    const fileTileSelector = '[role="group"][aria-label]';
+    //
+    // ChatGPT UI update (2026-11): confirmed via a user-submitted
+    // Diagnostics zip (44.7K-character prompt, stage=txt-attachment-
+    // not-detected) that the pasted-text tile is no longer a
+    // [role="group"] - it is now a plain <button aria-label="..."> inside
+    // [data-composer-attachments], next to its own "붙여넣은 텍스트 첨부
+    // 제거" remove button, and its preview ends in a single "…"
+    // (U+2026) instead of "..". Both shapes are matched; since the new
+    // one also picks up unrelated labelled elements (image tiles, remove
+    // buttons), a tile only counts once its label matches this prompt.
+    const fileTileSelector = '[role="group"][aria-label], [data-composer-attachments] [aria-label]';
+
+    // ChatGPT UI update (2026-11), same Diagnostics capture series: the
+    // stop button is now <button type="button" aria-label="중지"> inside
+    // the composer form, so sendButtonSelector's button[type="submit"]
+    // no longer finds it while ChatGPT is generating.
+    const stopButtonSelector =
+      '[data-testid="stop-button"], form[data-chatgpt-composer] button[aria-label*="중지"], form[data-chatgpt-composer] button[aria-label*="Stop"]';
+
+    const normalizedText = normalizeForCompare(text);
+
+    // A tile's aria-label is only a truncated preview of what it holds -
+    // see this function's own doc comment above.
+    const tileMatchesPrompt = (tile) => {
+
+      const tileLabel = (tile.getAttribute("aria-label") || "").trim();
+      const previewPrefix = normalizeForCompare(tileLabel.replace(/(\\.{2,}|\\u2026)$/, ""));
+
+      // An unlabelled preview was only ever accepted for the old
+      // [role="group"] tile shape - see fileTileSelector above.
+      if (previewPrefix.length === 0) {
+        return tile.getAttribute("role") === "group";
+      }
+
+      return normalizedText.startsWith(previewPrefix);
+
+    };
 
     const editor = document.querySelector(composerSelector);
 
@@ -729,12 +765,20 @@ export function buildTxtPromptScript(prompt: string) {
     let sendClickedAt = null;
     let acceptedAt = null;
 
+    // Set only when Path A (a file tile) confirmed the paste - see
+    // checkAccepted's "attachment-tile-sent" signal below.
+    let attachedViaTile = false;
+
     const baselineUserMessageCount = document.querySelectorAll(userMessageSelector).length;
     const baselineAssistantMessageCount = document.querySelectorAll(assistantMessageSelector).length;
 
     const isGeneratingState = () => {
 
       const sendButton = document.querySelector(sendButtonSelector);
+
+      if (document.querySelector(stopButtonSelector)) {
+        return true;
+      }
 
       return !!(
         sendButton &&
@@ -756,6 +800,21 @@ export function buildTxtPromptScript(prompt: string) {
     // check would report a false "accepted" on the very first poll
     // regardless of whether the click actually registered.
     const checkAccepted = () => {
+
+      // TXT-mode counterpart of that "textarea-empty" signal: the
+      // pasted-text tile was present before Send was clicked (Path A
+      // only ever starts sending once it is), and ChatGPT empties
+      // [data-composer-attachments] once the message is actually sent -
+      // confirmed live (2026-11 Diagnostics: message sent and image
+      // generated, but none of the signals below fired, since
+      // [data-message-author-role] and the type="submit" stop button
+      // were never seen).
+      if (
+        attachedViaTile &&
+        !Array.from(document.querySelectorAll(fileTileSelector)).some(tileMatchesPrompt)
+      ) {
+        return "attachment-tile-sent";
+      }
 
       if (
         document.querySelectorAll(userMessageSelector).length >
@@ -968,7 +1027,7 @@ export function buildTxtPromptScript(prompt: string) {
 
     const pasteAsTxt = () => {
 
-      const baselineTileCount = document.querySelectorAll(fileTileSelector).length;
+      const baselineTiles = Array.from(document.querySelectorAll(fileTileSelector));
 
       const dataTransfer = new DataTransfer();
       dataTransfer.setData("text/plain", text);
@@ -992,21 +1051,19 @@ export function buildTxtPromptScript(prompt: string) {
         // Path A (expected outcome for a genuinely long TXT-mode
         // prompt, confirmed live): ChatGPT converted the paste into
         // its own new file/document tile.
-        const tiles = Array.from(document.querySelectorAll(fileTileSelector));
+        const newTiles = Array.from(document.querySelectorAll(fileTileSelector))
+          .filter((tile) => !baselineTiles.includes(tile));
 
-        if (tiles.length > baselineTileCount) {
+        if (newTiles.length > 0) {
 
-          const newTile = tiles[tiles.length - 1];
-          const tileLabel = (newTile.getAttribute("aria-label") || "").trim();
-          const previewPrefix = tileLabel.replace(/\\.{2,}$/, "");
+          const matchedTile = newTiles.find(tileMatchesPrompt);
 
-          const contentMatches =
-            previewPrefix.length === 0 ||
-            text.trim().startsWith(previewPrefix);
+          if (matchedTile) {
 
-          if (contentMatches) {
+            const tileLabel = (matchedTile.getAttribute("aria-label") || "").trim();
 
             attachedAt = Date.now();
+            attachedViaTile = true;
             console.log("[ChatGPT] TXT attachment tile detected", { tileLabel });
             attemptSend();
             return;
@@ -1014,8 +1071,8 @@ export function buildTxtPromptScript(prompt: string) {
           }
 
           console.warn(
-            "[ChatGPT] a new file tile appeared but its label did not match this prompt - still waiting",
-            { tileLabel }
+            "[ChatGPT] new file tile(s) appeared but none matched this prompt - still waiting",
+            { tileLabels: newTiles.map((tile) => tile.getAttribute("aria-label") || "") }
           );
 
         }

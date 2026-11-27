@@ -1,5 +1,17 @@
 # ROADMAP
 
+## Version 1.5.3 - RELEASED (2026-11-27)
+
+TXT Attachment Mode fixes for ChatGPT's 2026-11 UI update, each read
+off a real Diagnostics capture (44.7K-character prompt).
+
+- `buildTxtPromptScript` tile detection: also matches labelled elements
+  in `[data-composer-attachments]` (new pasted-text tile is a plain
+  `<button aria-label>`), preview suffix "…" as well as "..".
+- Send acceptance: new `attachment-tile-sent` signal (the matched tile
+  is gone) and `stopButtonSelector` (stop button is now
+  `type="button"`, outside `SEND_BUTTON_SELECTOR`).
+
 ## Version 1.5.2 - RELEASED (2026-10-24)
 
 Bug-fix release from live multi-tab testing; each cause read off a
